@@ -1,0 +1,307 @@
+#Description: calcite-dolomite test case
+
+SIMULATION
+  SIMULATION_TYPE SUBSURFACE
+  PROCESS_MODELS
+    SUBSURFACE_TRANSPORT transport
+      MODE GIRT
+    /
+  /
+END
+
+SUBSURFACE
+
+#=========================== numerical methods ================================
+NUMERICAL_METHODS TRANSPORT
+
+  TIMESTEPPER
+    TS_ACCELERATION 8
+    MAX_STEPS 100000
+  /
+
+  NEWTON_SOLVER
+    PRECONDITIONER_MATRIX_TYPE AIJ
+    RTOL 1.d-8
+    ATOL 1.d-8
+    STOL 1.d-30
+  /
+
+  LINEAR_SOLVER
+    SOLVER DIRECT
+  /
+
+END
+
+SPECIFIED_VELOCITY
+  UNIFORM? YES
+  #DATASET 5.69333e-4 0.d0 0.d0 m/yr
+  DATASET 9.375e-6 0.d0 0.d0 m/s
+END
+
+# == chemistry ================================================================
+CHEMISTRY
+  PRIMARY_SPECIES
+    H+
+
+    Cprim
+    Caprim
+    Clprim
+    Hprim
+    Mgprim
+    Oprim
+
+    
+  /
+  SECONDARY_SPECIES
+    OH-
+    #CO3--
+    #CO2(aq)
+    #CaOH+
+    #CaCO3(aq)
+    #CaHCO3+
+    #CaCl+
+    #MgCO3(aq)
+    #MgHCO3+
+    #MgCl+
+    #HCl(aq)
+    #KCl(aq)
+    #NaCl(aq)
+    #NaOH(aq)
+  /
+  #PASSIVE_GAS_SPECIES
+  #  CO2(g)
+  #/
+  #MINERALS
+  #  Halite
+  #/
+ #
+  #MINERAL_KINETICS
+  #  Halite
+  #    RATE_CONSTANT 1.e-30
+  #  /
+  #/
+  #SORPTION
+  #  ION_EXCHANGE_RXN
+  #    #MINERAL Halite
+  #    CEC 71.004  ! mol/m^3
+  #    CATIONS
+  #      Na+   7.94328
+  #      Ca++  1. REFERENCE
+  #      Mg++  1.44544
+  #    /
+  #  /
+  #/
+
+  DATABASE baitDB.txt
+  LOG_FORMULATION
+  ACTIVITY_COEFFICIENTS ! NEWTON_ITERATION
+  MOLAL
+  
+  OUTPUT
+    Cprim
+    Caprim
+    Clprim
+    Hprim
+    Mgprim
+    Oprim
+
+  #SECONDARY_SPECIES
+  #Tracer
+  #TOTAL_SORBED
+  #All
+  #FREE_ION
+    TOTAL
+  /
+END
+
+# == reference variables ======================================================
+REFERENCE_POROSITY 0.61d0
+
+# == discretization ===========================================================
+GRID
+  TYPE STRUCTURED
+  NXYZ 101 1 1
+  BOUNDS
+    0.d0 0.d0 0.d0
+    0.5d0 1.d0 1.d0
+  /
+END
+
+# == fluid properties =========================================================
+FLUID_PROPERTY
+  DIFFUSION_COEFFICIENT 0 #1.d-9
+END
+
+# == material properties ======================================================
+MATERIAL_PROPERTY HD
+  ID 1
+  POROSITY 1 # 0.61
+  TORTUOSITY 1.0
+  LONGITUDINAL_DISPERSIVITY 0.0067
+  #PERMEABILITY
+  #  PERM_ISO 5.43d-13
+  /
+#END
+
+# == output ===================================================================
+OUTPUT
+
+  TIMES s 525
+  #PRINT_COLUMN_IDS
+  #PERIODIC_OBSERVATION TIMESTEP 1
+  #PERIODIC TIMESTEP 1
+  #PERIODIC TIME 0.04 y
+  #SCREEN PERIODIC 10
+  #FORMAT HDF5
+  FORMAT TECPLOT POINT
+  #VELOCITIES
+END
+
+# == times ====================================================================
+TIME
+  FINAL_TIME 525 s
+  INITIAL_TIMESTEP_SIZE 1. s
+  MAXIMUM_TIMESTEP_SIZE 20. s
+  MAXIMUM_TIMESTEP_SIZE 1. s at 10200. s
+  MAXIMUM_TIMESTEP_SIZE 20. s at 10350 s
+  MAXIMUM_TIMESTEP_SIZE 1. s at 33300 s
+  MAXIMUM_TIMESTEP_SIZE 20. s at 33600 s
+END
+
+# == regions ==================================================================
+REGION all
+  COORDINATES
+    -1.d20 -1.d20 -1.d20
+    1.d20 1.d20 1.d20
+  /
+END
+
+REGION west
+  FACE WEST
+  COORDINATES
+    0. 0. 0.
+    0. 1. 1.
+  /
+END
+
+REGION east
+  FACE EAST
+  COORDINATES
+    0.5 0. 0.
+    0.5 1. 1.
+  /
+END
+
+#OBSERVATION
+#  REGION east
+#END
+
+# == transport conditions =====================================================
+TRANSPORT_CONDITION Initial
+  TYPE DIRICHLET
+  CONSTRAINT_LIST
+    0.d0 Initial
+  /
+END
+
+TRANSPORT_CONDITION east
+  TYPE DIRICHLET
+  CONSTRAINT_LIST
+    0.d0 Initial
+  /
+END
+
+TRANSPORT_CONDITION west
+  TYPE DIRICHLET
+  CONSTRAINT_LIST
+    0.d0    Inlet1
+    #10307.1 Inlet2
+    #33498.2 Inlet3
+  /
+END
+
+# == couplers =================================================================
+INITIAL_CONDITION Initial
+  TRANSPORT_CONDITION Initial
+  REGION all
+END
+
+BOUNDARY_CONDITION
+  TRANSPORT_CONDITION west
+  REGION west
+END
+
+BOUNDARY_CONDITION
+  TRANSPORT_CONDITION east
+  REGION east
+END
+
+# == stratigraphy =============================================================
+STRATA
+  MATERIAL HD
+  REGION all
+END
+
+# == transport constraints ====================================================
+CONSTRAINT Initial
+  CONCENTRATIONS
+    Cprim 1.227524e-4 T DATASET C_init
+    Caprim 3.405e-4 T DATASET Ca_init
+    Clprim 2.08e-8 T DATASET Cl_init
+    Hprim 111.016747 T DATASET H_init
+    Mgprim 1e-8 T DATASET Mg_init
+    Oprim 55.508342 T DATASET O_init
+    
+H+ 1e-7 T
+
+    /
+  #MINERALS
+  #  Halite        0.5 1.
+  #/
+END
+
+DATASET C_init
+	HDF5_DATASET_NAME Ci
+	FILENAME testPiccts.h5
+END
+DATASET Ca_init
+	HDF5_DATASET_NAME Cai
+	FILENAME testPiccts.h5
+END
+DATASET Cl_init
+	HDF5_DATASET_NAME Cli
+	FILENAME testPiccts.h5
+END
+DATASET H_init
+	HDF5_DATASET_NAME Hi
+	FILENAME testPiccts.h5
+END
+DATASET O_init
+	HDF5_DATASET_NAME Oi
+	FILENAME testPiccts.h5
+END
+DATASET Mg_init
+	HDF5_DATASET_NAME Mgi
+	FILENAME testPiccts.h5
+END
+DATASET O_init
+	HDF5_DATASET_NAME Oi
+	FILENAME testPiccts.h5
+END
+
+CONSTRAINT Inlet1
+  CONCENTRATIONS
+    Cprim 1e-8 T
+    Caprim 1e-8 T
+    Clprim 2e-3 T
+    Hprim 111.016747 T
+    Mgprim 1e-3 T
+    Oprim 55.508393 T
+    
+H+ 1e-7 T
+
+ /
+END
+
+
+END_SUBSURFACE
