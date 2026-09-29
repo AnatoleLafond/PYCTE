@@ -1,0 +1,68 @@
+[project]
+name = "pycte"
+version = "0.1.3"
+description = "PYthon generiC inTerfacE : coupling of speciation and transport solvers"
+readme = "README.md"
+authors = [ { name = "Anatole Lafond"}]
+license = "Apache-2.0"
+license-files = ["LICENSE.txt"]
+
+requires-python = ">=3.11"
+# Toutes les bibliotheques Python s'installent avec pip install pycte. Les logiciels externes (COMSOL,
+# PFLOTRAN, ORCHESTRA / PyORCHESTRA, xGEMS par conda-forge) sont installes separement par l'utilisateur.
+dependencies = [
+    "numpy>=2.0",
+    "pandas>=2.2.2",                # premiere version compatible avec numpy 2
+    "scipy>=1.13",                  # nativeKinetics, solveurs implicites de nativeTransport
+    "charset-normalizer>=3.0",      # lecture des bases de donnees (extractDB)
+    "phreeqpy>=0.6",                # interface PhreeqC (IPhreeqc)
+    "h5py>=3.11",                   # interface PFLOTRAN (logiciel installe separement)
+    "mph>=1.2",                     # interface COMSOL (logiciel installe separement)
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.urls]
+Repository = "https://github.com/AnatoleLafond/PYCTE"
+
+[project.optional-dependencies]
+# conserves pour compatibilite (pip install pycte[all] ...) : tout est desormais installe par defaut
+extractdb = []
+phreeqc = []
+pflotran = []
+comsol = []
+gems = []
+orchestra = []
+native = []
+all = []
+
+[build-system]
+requires = ["setuptools>=77.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = [
+    "pycte",
+    "pycte.Source",
+    "pycte.Examples",
+    "pycte.Examples.CationExchange",
+    "pycte.Examples.CalciteDolomite",
+    "pycte.Examples.CalciteDolomite.Resources",             # dossiers de donnees (sans .py)
+    "pycte.Examples.CalciteDolomite.Resources.CalciteIC",
+    "pycte.Examples.AldicarbInfiltration",
+    "pycte.Examples.CementClayInterface",
+]
+
+[tool.setuptools.package-data]
+"pycte.Examples.CationExchange" = ["*.dat", "*.txt", "*.inp", "*.mph", "*.in"]
+"pycte.Examples.CalciteDolomite" = ["*.txt", "*.in", "*.mph"]
+"pycte.Examples.CalciteDolomite.Resources.CalciteIC" = ["*.dat", "*.lst"]
+"pycte.Examples.AldicarbInfiltration" = ["*.dat", "*.txt", "*.inp", "*.mph"]
+"pycte.Examples.CementClayInterface" = ["*.dat", "*.txt", "*.inp"]

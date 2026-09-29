@@ -8,6 +8,10 @@ from pathlib import Path
 import pandas as pd
 import h5py
 import sys
+try:
+    from . import outputManager
+except ImportError:
+    import outputManager
 
 
 
@@ -58,7 +62,7 @@ def normalizeVarName(name):
     s = s.replace("total ", "")
     s = s.replace("minus", "-")
     s = s.replace("plus", "+")
-    s = re.sub(r"dc\b", "", s) # thats my pflotran formalism, but can be changed
+    s = re.sub(r"dc\b", "", s)
     s = s.rstrip("]")            
     s = re.sub(r"\s+", " ", s).strip()
     return s
@@ -126,28 +130,28 @@ def convertUnit(value, from_unit, to_unit):
 
 
 def transport(centralDict):
+    
     spcArray = {
-        col: np.where((arr := centralDict['commMtrx'][col].to_numpy()) == 0, 1e-99, arr)
-        for col in centralDict['commMtrx'].columns
+        col: np.where((arr := centralDict['commMtrx'][col].to_numpy()) < 1e-40, 1e-40, arr)
+        for col in centralDict['systemSpeciation']
         if col not in (["Zz"] + centralDict['coord'])
     }
-
-    with h5py.File(os.path.join(centralDict['trsptPath'].parent, 'testPiccts.h5'), 'w') as f:
+    
+    
+    with h5py.File(centralDict['trsptPath'].parent / 'testpycte.h5', 'w') as f:
         f.create_dataset('Cell Ids', data = np.array(list(range(1,len(centralDict['commMtrx'])+1)), dtype = 'i8'))
         for s in spcArray:
             if s == 'MX-80':
                 f.create_dataset(s+'i', data = 1000*spcArray[s]*0.000137469997406006)
             elif s == 'hMX-80':
                 f.create_dataset(s+'i', data = 1000*spcArray[s]*0.000215)
-            #elif s == 'tk':
-                #f.create_dataset(s+'i', data = (spcArray[s]-273.15))
             elif s == 'p':
                 f.create_dataset(s+'i', data = (spcArray[s]))
 
             else:
                 f.create_dataset(s+'i', data = spcArray[s])
 
-    if centralDict['lStep'] == 0 or centralDict['dtStep'] != (centralDict['dtPICCTS'][centralDict['lStep']]-centralDict['dtPICCTS'][centralDict['lStep']-1]):
+    if centralDict['lStep'] == 0 or centralDict['dtStep'] != (centralDict['dtpycte'][centralDict['lStep']]-centralDict['dtpycte'][centralDict['lStep']-1]):
         update_pflotran_time(centralDict['trsptPath'],centralDict['dtStep'], centralDict['timeUnit'])
 
     pflotran = os.path.join(
@@ -157,7 +161,7 @@ def transport(centralDict):
         "pflotran"
     )
 
-    with open("pflotran_output.txt", "w") as f:
+    with open(centralDict['trsptPath'].parent / 'pflotran.log', "w") as f:
         ref = time.perf_counter()
         subprocess.run(
             [
@@ -179,7 +183,7 @@ def transport(centralDict):
 
     pattern = re.compile(rf"{Path(centralDict['trsptPath']).stem}-(\d+)\.tec$")
 
-    files = [f for f in Path(centralDict['trsptPath'].parent).iterdir() if pattern.match(f.name)] # will catch the highest one .. may be a probleme in the future
+    files = [f for f in Path(centralDict['trsptPath'].parent).iterdir() if pattern.match(f.name)]
 
     if not files:
         raise FileNotFoundError("No '{Path(centralDict['trsptPath']).stem}-*.tec' file found.")
@@ -234,9 +238,9 @@ def transport(centralDict):
         sourceUnit = variableUnits.get(sourceName)
         df[target] = convertUnit(df[target], sourceUnit, desiredUnit)
     
-    # to change ..
-    df['hMX-80'] = df['hMX-80']/(1000*0.000215)
-    df['MX-80'] = df['MX-80']/(1000*0.000137469997406006)
+    if 'hMX-80' in df:
+        df['hMX-80'] = df['hMX-80']/(1000*0.000215)
+        df['MX-80'] = df['MX-80']/(1000*0.000137469997406006)
     
     return df, calcTime
 
@@ -246,62 +250,30 @@ def trspt(centralDict):
     startPflotran = time.time()
 
     toAdd = False
-    pflotranInput =  centralDict['commMtrx'].copy()
+    pflotranInput = centralDict['commMtrx'].copy()
     if centralDict['crossDependencies'] and centralDict['crossDependencies'].get('transport'):
-        pflotranHeaders = centralDict['transportedSpecies'] + list(centralDict['crossDependencies']['transport']['total'])
+        pflotranHeaders = centralDict['systemSpeciation'] + list(centralDict['crossDependencies']['transport']['total'])
     else:
-        pflotranHeaders = centralDict['transportedSpecies']
+        pflotranHeaders = centralDict['systemSpeciation']
     if centralDict['crossDependencies'] and centralDict['crossDependencies'].get('transport'):
         a = list(set(centralDict['crossDependencies']['speciation']['total']) - set(centralDict['crossDependencies']['transport']['total']))
-        if a:
-            toAdd = a
-            
+        if a: toAdd = a
 
     pflotranInput = pflotranInput[pflotranHeaders].copy()
     
-    if centralDict['PIDnbr'] > 1:
+    comm, calcWallClock = transport(centralDict)
 
-        chunk_size = int(np.ceil(len(pflotranInput) / centralDict['PIDnbr']))
-
-        commMtrxSplit = [pflotranInput.iloc[i:i + chunk_size] for i in range(0, len(pflotranInput), chunk_size)]
-
-        with concurrent.futures.ProcessPoolExecutor(max_workers=centralDict['PIDnbr']) as executor:
-            futures = []
-            for chunk in commMtrxSplit:
-                futures.append(
-                    executor.submit(
-                        transport,
-                        centralDict,
-                        # chunk,
-                    )
-                )
-
-    else:
-        comm, calcWallClock = transport(centralDict)
-        calcPrcsTime = calcWallClock
-
-    
     if toAdd:
         comm = pd.concat([comm,centralDict['commMtrx'][toAdd]], axis=1)
 
-    # if centralDict['crossDependencies']:
-    #     if centralDict['crossDependencies'].get('speciation'):
-    #         a=list(set(centralDict['crossDependencies']['speciation']['total']) - set(centralDict['crossDependencies']['transport']['total']))
-    #         if a:
-    #             comm = pd.concat([comm,centralDict['commMtrx'][a]], axis=1)
-
-        # if centralDict['crossDependencies'].get('transport') and list(set(centralDict['crossDependencies']['transport']['input']) - set(centralDict['crossDependencies']['transport']['total'])):
-            # a = list(set(centralDict['crossDependencies']['transport']['input']) - set(centralDict['crossDependencies']['transport']['total']))
-            # comm = pd.concat([comm,centralDict['commMtrx'][a]], axis=1)
-
-    if centralDict['output'] and centralDict['output'].get('transport') and (centralDict['lStep']+1) in centralDict['output']['transport'] :
-       comm.to_csv(os.path.join(centralDict['paths']['Transport'], f"nativeTransport_{centralDict['lStep']+1}.txt"), index=False, header=True, sep='\t')
-
+    if outputManager.wanted(centralDict, 'transport'):
+       comm.to_csv(outputManager.filePath(centralDict, 'transport', 'pflotran'), index=False, header=True, sep='\t')
 
     centralDict.update({
         "commMtrx": comm,
         "PFLOTRANCalcTime_WallClock": centralDict["PFLOTRANCalcTime_WallClock"] + calcWallClock,
-        "PFLOTRANCalcTime_ProcessorTime": centralDict["PFLOTRANCalcTime_ProcessorTime"] + calcPrcsTime,
+        'PFLOTRANInterfTime_WallClock' : centralDict["PFLOTRANInterfTime_WallClock"] + time.time() - startPflotran - calcWallClock,
+        "PFLOTRANCalcTime_ProcessorTime": centralDict["PFLOTRANCalcTime_ProcessorTime"] + calcWallClock,
         "PFLOTRANTotalTime" : centralDict["PFLOTRANTotalTime"] + time.time() - startPflotran,})
 
 

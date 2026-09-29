@@ -6,7 +6,18 @@ import os
 from pathlib import Path
 import concurrent.futures
 import contextlib
-import PyORCHESTRA
+try:
+    import PyORCHESTRA
+except ImportError as err:
+    raise ImportError("chemModule = 'ORCHESTRA' needs PyORCHESTRA, the Python interface of ORCHESTRA (H. Meeussen), "
+                      "compiled from its sources : pip install <PyORCHESTRA source folder> (C++ compiler needed). "
+                      "Do not 'pip install PyORCHESTRA' from PyPI : that name is an unrelated project.") from err
+import faulthandler; faulthandler.enable() 
+try:
+    from . import outputManager
+except ImportError:
+    import outputManager
+
 
 solver = None
 initWorker = 0
@@ -60,6 +71,7 @@ def _init_worker(chemPath, inVars, outVars,t,dt,l,unit):
 
 def speciationOrchestra(centralDict,commMtrxPart):
     global solver, initWorker, firstCalc
+    pd.set_option('display.max_columns', None)
     """
     Site quantity is natively defined in the .inp file. This file could change depending on the node number ...
     side note:
@@ -69,142 +81,109 @@ def speciationOrchestra(centralDict,commMtrxPart):
     """
     
     commMtrxPart = commMtrxPart.copy()
-    
-    if centralDict['couplingFormalism'] == 'literbulk' and centralDict['lStep'] == 0 and centralDict['firstIC']:
-
-        commMtrx_primSpecies = pd.read_csv('literbulkIC.txt',sep=r"\s+",comment="%",dtype=float)
-
-        rows = commMtrx_primSpecies.to_numpy()
-    
-        refdf = commMtrx_primSpecies.copy()
-        pd.set_option('display.float_format', lambda x: f'{x:.15f}')
 
 
-    elif centralDict['couplingFormalism'] == 'literbulk' :
-        
+    if centralDict['couplingFormalism'] == 'literbulk' :
+
         commMtrxPart.loc[:, centralDict['colAq']] = (commMtrxPart.loc[:, centralDict['colAq']].mul(centralDict['waterMass'], axis=0))
-    
+        
+        if centralDict['crossDependencies'] and centralDict['crossDependencies']['speciation']:
+            commMtrxPart.drop(columns=centralDict['crossDependencies']['speciation']['total'], inplace=True, )
+
+        if 'O' in centralDict['stoich']:
+            del centralDict['stoich']['O']
+        
+
         commMtrx_primSpecies = pd.DataFrame(
             commMtrxPart.to_numpy() @ centralDict['stoich'].to_numpy(),
-            columns=centralDict['stoich'].columns)
+            columns=centralDict["inputVariableOrchestraSpecies"]
+            )
 
-        commMtrx_primSpecies = commMtrx_primSpecies.drop(columns="O")
-        t = ["chargebalance","totvolume","A","poreD","dx","porosity","saturation","pH","pe",]
-        commMtrx_primSpecies = pd.concat([centralDict['commMtrx'][t],commMtrx_primSpecies], axis=1)
-        commMtrx_primSpecies.columns =  centralDict["inputVariableOrchestra"]
+        if centralDict['crossDependencies'] and centralDict['crossDependencies']['speciation']:
+                commMtrx_primSpecies = pd.concat([centralDict['commMtrx'][centralDict['crossDependencies']['speciation']['total']],commMtrx_primSpecies], axis=1, )
+
+
+
+        refdf = commMtrx_primSpecies.copy()
+
+        rows = commMtrx_primSpecies.to_numpy()
+
         
-        refdf =  commMtrx_primSpecies.copy()
-        rows = commMtrx_primSpecies.to_numpy()
-    
     elif centralDict['couplingFormalism'] == 'tot':
+        # print(centralDict['stoichReduced'],commMtrxPart[centralDict['systemSpecies']])
+        # sys.exit()
+        # especes (mailles x systemSpecies) @ stoichReduced (systemSpecies x composants) -> totaux des composants
+        components = centralDict['primarySpecies'][-1]       # ex. ['Ca', 'Cl', 'K', 'N', 'Na']
         commMtrx_primSpecies = pd.DataFrame(
-            commMtrxPart.to_numpy() @ centralDict['stoichReduced'].to_numpy(),
-            columns=centralDict['primarySpecies'][-1]
-        )
+            commMtrxPart[centralDict['systemSpecies']].to_numpy() @ centralDict['stoichReduced'].to_numpy(),
+            columns=components, index=commMtrxPart.index
+        ).clip(lower=0)
+
+        if centralDict['crossDependencies'] and centralDict['crossDependencies'].get('speciation'):
+            cross = centralDict['crossDependencies']['speciation']['total']
+            commMtrx_primSpecies[cross] = commMtrxPart[cross]    # pH, pe, ... : pas de clip (pe < 0 possible)
+
+        # entrees ORCHESTRA par nom : 'Ca.tot' <- composant 'Ca', variable croisee telle quelle ; l'ordre de
+        # inputVariableOrchestra est libre (un renommage par position echangerait Na et N si l'ordre differe)
+        source = [v if v in commMtrx_primSpecies.columns else v.rsplit('.', 1)[0]
+                  for v in centralDict["inputVariableOrchestra"]]
+        commMtrx_primSpecies = commMtrx_primSpecies[source]
+        commMtrx_primSpecies.columns = centralDict["inputVariableOrchestra"]
         rows = commMtrx_primSpecies.to_numpy()
 
+    
+
+        
+        
+        
+    
     else:
-        print(f'ORCHESTRA coupling formalism not recognized : {centralDict["couplingFormalism"]} (tot and literbulk available)')
+        print(f'ORCHESTRA coupling formalism not recognized : {centralDict["couplingFormalism"]} (tot, literbulk, diss available)')
         sys.exit()
     
-    if centralDict['crossDependencies'] and centralDict['crossDependencies'].get('speciation'):
-        commMtrx_primSpecies[centralDict['crossDependencies']['speciation']['total']] = centralDict['commMtrx'][centralDict['crossDependencies']['speciation']['total']].copy()
-        commMtrx_primSpecies.columns = centralDict["inputVariableOrchestra"] 
+    
 
-    
-    # df = pd.read_csv(r"C:\Users\AL274877\Desktop\usbSave0608\Aldicarb\test.txt", names = centralDict["inputVariableOrchestra"] , sep=r"\s+")
-    # df.columns = centralDict["inputVariableOrchestra"] 
-    # rows = df.to_numpy()
-    # print()
-    # print(df)
-    # print(commMtrx_primSpecies)
-    # a = df.to_numpy()                                # celui qui marche
-    # b = commMtrx_primSpecies.to_numpy()              # celui qui ne marche pas
-    
-    # for nom, x in (("test.txt", a), ("PyCTE", b)):
-    #     print(nom, x.shape, x.dtype, "C-contig:", x.flags['C_CONTIGUOUS'],
-    #           "finite:", np.isfinite(x).all())
-    # print(commMtrx_primSpecies.dtypes)               # dtype COLONNE PAR COLONNE
+    rows = np.empty((len(commMtrx_primSpecies), len(centralDict["inputVariableOrchestra"])), dtype=np.float64, order="C")
+    for j, col in enumerate(centralDict["inputVariableOrchestra"]):
+        rows[:, j] = commMtrx_primSpecies[col].to_numpy(dtype=np.float64)
+        
+
     nrCells = rows.shape[0]
-    # print(nrCells)
     calcTime = 0
-    # sys.exit()
-    # print(centralDict['inputVariableOrchestra'], centralDict['outputVariableOrchestra'],commMtrx_primSpecies)
-    # sys.exit()
-    
-    # from pathlib import Path
-    # p = Path(centralDict['chemPath']).resolve()
-    # print(p, p.stat().st_mtime)
-    # print((p.parent / "objects2026Kin.txt").resolve(),
-    #       (p.parent / "objects2026Kin.txt").stat().st_mtime)
-    # print("kin_version présent :", "kin_version" in (p.parent / "objects2026Kin.txt").read_text(errors="replace"))
-
 
     if solver is None: 
-        chem_dir = Path(centralDict['chemPath']).parent
         _cwd = os.getcwd()
-        os.chdir(chem_dir)
+        os.chdir(Path(centralDict['chemPath']).parent)
+
         try:
-            with redirect_stdout_fd("orchestra_output.log",centralDict['tStep'],centralDict['dtStep'],centralDict['lStep'],centralDict['timeUnit']):
+            # journal dans le dossier du run, pas dans celui de la base (package installe : dossier en lecture seule)
+            with redirect_stdout_fd(os.path.join(_cwd, "orchestra_output.log"),centralDict['tStep'],centralDict['dtStep'],centralDict['lStep'],centralDict['timeUnit']):
                 ref = time.perf_counter()
                 solver = PyORCHESTRA.ORCHESTRA()
-                solver.initialise(str(centralDict['chemPath']), nrCells, centralDict['inputVariableOrchestra'], centralDict['outputVariableOrchestra'])
-                init= time.perf_counter() - ref
+                solver.initialise(Path(centralDict['chemPath']).name, nrCells, centralDict['inputVariableOrchestra'], centralDict['outputVariableOrchestra'])
+                init = time.perf_counter() - ref
         finally:
             os.chdir(_cwd)
     else:
         init = 0
-    # print('ici')
 
-    # print(df)
-    # rows = df.to_numpy()
-    # print(df)
+    
     with redirect_stdout_fd("orchestra_output.log",centralDict['tStep'],centralDict['dtStep'],centralDict['lStep'],centralDict['timeUnit']):
         memory_option = 1 if firstCalc else 0
         ref = time.perf_counter()
         outputarray = solver.set_and_calculate_multi(rows, centralDict['nrThreads'], memory_option)
-        # outputarray = solver.set_and_calculate_multi(rows, 1, 1)
 
         calcTime = time.perf_counter() - ref
         firstCalc = False
 
-
-
-    if centralDict['couplingFormalism'] == 'literbulk' : #centralDict['lStep'] :
-        outputOrchestra = pd.DataFrame(outputarray, columns=(["chargebalance","totvolume","A","poreD","dx","porosity","saturation","pH","pe",'failed']+ centralDict['systemSpeciation']))      
-    else:
-        # outputOrchestra = pd.DataFrame(outputarray, columns=(centralDict['outputVariableOrchestra']))   
-        # print(outputOrchestra)
-        # sys.exit()
-        outputOrchestra = pd.DataFrame(outputarray, columns=(centralDict['systemSpeciation']))      
-
-
-    
-    if centralDict['couplingFormalism'] == 'literbulk' :
-        ### no MB after equilibrium, decomp to check
-        output = outputOrchestra[centralDict['systemSpeciation']].copy()
-        
-        
-
-
-        #cols = [s for s in centralDict['systemSpeciation'] if s not in centralDict['phases']]    
-        
+    if False :
+        output = pd.DataFrame(outputarray, columns=(centralDict['systemSpeciation']))      
         output.loc[:, centralDict['colAq']] = (output.loc[:, centralDict['colAq']].mul(centralDict['waterMass'], axis=0))
     
         output = pd.DataFrame(
             output.to_numpy() @ centralDict['stoich'].to_numpy(),
             columns=centralDict['stoich'].columns)
-        
-        output = output.drop(columns="O")
-        # print(output)
-        # output = output.map(lambda x: float(f"{x:.10g}") if isinstance(x, (int, float)) else x)
-        # refdf = refdf.map(lambda x: float(f"{x:.10g}") if isinstance(x, (int, float)) else x)
-
-        # print(refdf)
-        refdf = refdf.drop(columns = ["chargebalance","totvolume","A","poreD","dx","porosity","saturation","pH","pe"])
-    
         output.columns = refdf.columns
-        # print(output)
         tol = 1e-11
         diff = (output - refdf).abs()
         
@@ -221,30 +200,25 @@ def speciationOrchestra(centralDict,commMtrxPart):
                 warningLog.write(diff.to_string())
             print('pblm MB, tol = ', tol)
             sys.exit()
-        pd.set_option('display.max_columns', None)
-        pd.set_option('display.float_format', '{:.3e}'.format)
         
-        print(diff)
-    # if centralDict['lStep'] == 301:
-        sys.exit()
-    
+    else:
+        kept = (centralDict['crossDependencies']['transport']['total']
+                if centralDict['crossDependencies'] and centralDict['crossDependencies'].get('transport') else [])
+        outputOrchestra = pd.DataFrame(outputarray, columns=[s for s in centralDict['systemSpeciation'] if s not in kept])
+
+
     return outputOrchestra, commMtrx_primSpecies, calcTime, init
 
 def spct(centralDict):
     print("ORCHESTRA", end=" ", flush=True)
     startOrchestra = time.time()
-
-    colSave = centralDict['commMtrx'].columns
-    # if centralDict['lStep'] > 0:
-    #     print(centralDict['commMtrx'][['pH','Na+']])
-    # sys.exit()
-    commMtrxSpct, commMtrx_primSpecies, calcWallClock, init = speciationOrchestra(centralDict, centralDict['commMtrx'][centralDict['systemSpeciation']])
-    calcPrcsTime = calcWallClock
-        
-    commMtrxSpct = pd.concat([centralDict['commMtrx'][centralDict["anythingButSpecies"]],commMtrxSpct], axis=1)
-
-    #commMtrxSpct.columns = list(centralDict['commMtrx'].columns) + ['failed']
-
+    
+    if centralDict['crossDependencies'] and centralDict['crossDependencies'].get('speciation'):
+        col = [c for c in centralDict['systemSpeciation'] if c in (centralDict['systemSpecies'] + centralDict['crossDependencies']['speciation']['total']) ]
+    else:
+        col = centralDict['systemSpecies']
+    
+    commMtrxSpct, commMtrx_primSpecies, calcWallClock, init = speciationOrchestra(centralDict, centralDict['commMtrx'][col])
 
     
     if 'failed' in commMtrxSpct.columns:
@@ -253,22 +227,33 @@ def spct(centralDict):
             commMtrxSpct.to_csv("commMtrx_failed.txt", index=False, header=True, sep='\t')
             sys.exit()
         commMtrxSpct = commMtrxSpct.drop(columns="failed")
-    commMtrx_primSpecies = pd.concat([centralDict['commMtrx'][['x', 'y', 'z'][:centralDict['geometry']]],commMtrx_primSpecies], axis=1)
+    
+    
+    if centralDict['crossDependencies'] and centralDict['crossDependencies'].get('transport'):
+        col = centralDict["anythingButSpecies"] + centralDict['crossDependencies']['transport']['total']
+    else:
+        col = centralDict["anythingButSpecies"]
+    
+    commMtrxSpct = pd.concat([centralDict['commMtrx'][col],commMtrxSpct], axis=1)
+    commMtrxSpct = commMtrxSpct[centralDict['commMtrx'].columns]
+    if outputManager.wanted(centralDict, 'speciation'):
+       commMtrx_primSpecies.to_csv(outputManager.filePath(centralDict, 'primarySpecies', 'PrimarySpecies'), index=False, header=True, sep='\t')
+       commMtrxSpct.to_csv(outputManager.filePath(centralDict, 'speciation', 'ORCHESTRA'), index=False, header=True, sep='\t')
 
-
-    if centralDict['output'] and centralDict['output'].get('speciation') and (centralDict['lStep']+1) in centralDict['output']['speciation'] :
-       commMtrx_primSpecies.to_csv(os.path.join(centralDict['paths']['PrimarySpecies'], f"PrimarySpecies_{centralDict['lStep']+1}.txt"), index=False, header=True, sep='\t')
-       commMtrxSpct.to_csv(os.path.join(centralDict['paths']['Speciation'], f"ORCHESTRA_{centralDict['lStep']+1}.txt"), index=False, header=True, sep='\t')
-
+    
+    
+    if centralDict['lStep'] == len(centralDict['dtpycte'])-1:
+        resetOrchestra()
     
     # print(commMtrxSpct)
     # sys.exit()
+    
     
     centralDict.update({
         "commMtrx": commMtrxSpct,
         "ORCHESTRAInterfTime_WallClock": centralDict['ORCHESTRAInterfTime_WallClock'] + time.time() - startOrchestra - calcWallClock - init,
         "ORCHESTRACalcTime_WallClock": centralDict['ORCHESTRACalcTime_WallClock'] + calcWallClock,
-        "ORCHESTRACalcTime_ProcessorTime": centralDict['ORCHESTRACalcTime_ProcessorTime'] + calcPrcsTime,
+        "ORCHESTRACalcTime_ProcessorTime": centralDict['ORCHESTRACalcTime_ProcessorTime'] + calcWallClock,
         "ORCHESTRAInitTime" : centralDict['ORCHESTRAInitTime'] + init,
         "ORCHESTRATotalTime" : centralDict['ORCHESTRATotalTime'] + time.time() - startOrchestra
         })

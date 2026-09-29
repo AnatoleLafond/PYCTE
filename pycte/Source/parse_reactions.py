@@ -37,10 +37,12 @@ import json
 
 import pandas as pd
 
+try:
+    from . import warningManager
+except ImportError:
+    import warningManager
 
-# ==========================================================================
-# 1. Lexing helpers
-# ==========================================================================
+
 def split_top_level(s):
     """Split a string on commas that are NOT inside quotes or nested
     parentheses (the logK expression is quoted and may itself contain
@@ -96,7 +98,7 @@ def parse_tagged_calls(text, tag):
     and return the full argument string for each occurrence."""
     calls = []
     for m in re.finditer(r'@' + re.escape(tag) + r'\s*\(', text):
-        start = m.end()          # position right after the opening '('
+        start = m.end()
         depth = 1
         i = start
         in_quotes = False
@@ -110,7 +112,7 @@ def parse_tagged_calls(text, tag):
                 elif ch == ')':
                     depth -= 1
             i += 1
-        calls.append(text[start:i - 1])   # exclude the final ')'
+        calls.append(text[start:i - 1])
     return calls
 
 
@@ -132,9 +134,6 @@ def _read(filepath):
         return strip_comments(f.read())
 
 
-# ==========================================================================
-# 2. Reading the database
-# ==========================================================================
 def build_reaction_dict(filepath):
     """{product: {reactant: coefficient, ...}} for every @logKreaction."""
     text = _read(filepath)
@@ -144,9 +143,9 @@ def build_reaction_dict(filepath):
         if len(args) < 2:
             continue
         name = args[0].strip()
-        rest = args[2:]                  # args[1] = logK value/expression
+        rest = args[2:]
         if len(rest) % 2 != 0:
-            continue                     # malformed pairing -> skip
+            continue
         reactants = {}
         for i in range(0, len(rest), 2):
             coef_str = rest[i].strip()
@@ -154,7 +153,7 @@ def build_reaction_dict(filepath):
             try:
                 coef = float(coef_str)
             except ValueError:
-                coef = coef_str          # coefficient given as an expression
+                coef = coef_str
             reactants[reactant] = coef
         reactions[name] = reactants
     return reactions
@@ -274,7 +273,48 @@ def build_components(filepath):
         comps[name] = {'kind': 'element', 'args': args}
     for name, info in build_surface_sites(filepath).items():
         comps[name] = dict(info, kind='site')
+    for site, (col, factor) in site_column_map(comps).items():
+        comps[site]['column'] = col
+        comps[site]['factor'] = factor
     return comps
+
+
+def site_column_map(components):
+    """{site: (column_name, factor)} for every adsorption/exchange site.
+
+    Generic rule, deduced from @adsmodel / @surfsite:
+
+      * model with ONE site  -> the column carries the MODEL name and the
+        coefficient is divided by nsites, so that summing the column gives
+        the model concentration (the 3rd argument of @adsmodel, e.g. Xc_CEC):
+
+            @adsmodel(Xc, ads, Xc_CEC, Basic_surface)
+            @surfsite(Xc, X, 1, 0)
+            Xc_X2-Sr = 2 Xc_X + Sr+2      ->  {'Sr': 1, 'Xc': 2}
+
+      * model with SEVERAL sites -> one column per site, unchanged
+        (Hfo_wOH, Hfo_sOH, ...). Merging them would count the model once
+        per site, i.e. several times.
+
+    The site name is also kept if the model name already exists as another
+    component (no collision possible).
+    """
+    sites = {n: v for n, v in components.items() if v.get('kind') == 'site'}
+    per_model = {}
+    for name, info in sites.items():
+        per_model.setdefault(info.get('model'), []).append(name)
+
+    out = {}
+    for model, names in per_model.items():
+        if model and len(names) == 1 and model not in components:
+            site = names[0]
+            n = sites[site].get('nsites', 1.0)
+            factor = 1.0 / n if isinstance(n, float) and n != 0 else 1.0
+            out[site] = (model, factor)
+        else:
+            for site in names:
+                out[site] = (site, 1.0)
+    return out
 
 
 def build_alias_map(filepath, extra=None):
@@ -294,20 +334,17 @@ def build_alias_map(filepath, extra=None):
         site, raw = info['site'], info['raw']
         m = re.match(r'^(' + re.escape(site) + r'\d*)-(.+)$', raw)
         if m:
-            aliases[m.group(2) + m.group(1)] = orch      # CaX2 -> Exch_X2-Ca
-        aliases.setdefault(raw, orch)                    # X2-Ca -> Exch_X2-Ca
+            aliases[m.group(2) + m.group(1)] = orch
+        aliases.setdefault(raw, orch)
     for orch, info in build_surface_sites(filepath).items():
         s = info['site']
         for variant in (s, s + '-', s.lower(), s.lower() + '-'):
-            aliases.setdefault(variant, orch)            # X / X- / x -> Exch_X
+            aliases.setdefault(variant, orch)
     if extra:
         aliases.update(extra)
     return aliases
 
 
-# ==========================================================================
-# 3. Recursive resolution  (what @rewriteReactions: does internally)
-# ==========================================================================
 def _as_set(components):
     return set(components.keys()) if isinstance(components, dict) else set(components)
 
@@ -355,8 +392,8 @@ def resolve_to_primary(species, reactions, primary_set, _cache=None, _stack=None
         unknown_seen.add(species)
         if on_unknown == 'raise':
             raise KeyError(
-                f"{species} n'est ni un composant (@primary_entity / @surfsite) "
-                f"ni defini par @logKreaction."
+                f"{species} is not a component (@primary_entity / @surfsite) "
+                f"nor defined by @logKreaction."
             )
         result = {} if on_unknown == 'ignore' else {species: 1.0}
         _cache[species] = result
@@ -403,11 +440,9 @@ def component_list(reactions, components, on_unknown='primary'):
     return cols
 
 
-# ==========================================================================
-# 4. Stoichiometry matrix
-# ==========================================================================
 def build_stoich_matrix(reactions, components, species_list, filepath=None,
-                        aliases=None, on_unknown='primary', verbose=True):
+                        aliases=None, on_unknown='primary', verbose=True,
+                        site_columns='model'):
     """(species x components) stoichiometry matrix, indexed by
     `species_list` IN THAT EXACT ORDER (e.g. commMtrx.columns), so a
     positional matmul with commMtrx.to_numpy() always matches.
@@ -425,6 +460,14 @@ def build_stoich_matrix(reactions, components, species_list, filepath=None,
     A name that is unknown even after alias translation gets a row of zeros
     and is reported at the end (it is genuinely absent from the database
     and must be added to the .inp).
+
+    site_columns  'model' (default) : a single-site adsorption model gets a
+                                      column named after the MODEL, coef/nsites
+                                      (Xc_X2-Sr -> {'Sr': 1, 'Xc': 2}), see
+                                      site_column_map()
+                  'site'            : old behaviour, column named after the
+                                      site (Xc_X2-Sr -> {'Sr': 1, 'Xc_X': 2})
+    The model name itself ('Xc') is accepted in species_list (identity row).
     """
     components = dict(components) if isinstance(components, dict) \
         else {c: {'kind': 'element'} for c in components}
@@ -439,20 +482,35 @@ def build_stoich_matrix(reactions, components, species_list, filepath=None,
     if aliases:
         table.update(aliases)
 
+    smap = site_column_map(components) if site_columns == 'model' else {}
+    model_cols = {col for col, _ in smap.values()} - set(cols)
+
+    def to_columns(row):
+        out = {}
+        for prim, coef in row.items():
+            col, f = smap.get(prim, (prim, 1.0))
+            out[col] = out.get(col, 0.0) + coef * f
+        return out
+
     rows, used_alias, missing = {}, {}, []
     for name in species_list:
-        target = name if (name in cols or name in resolved) else table.get(name, name)
+        target = name if (name in cols or name in resolved or name in model_cols) \
+            else table.get(name, name)
         if target != name:
             used_alias[name] = target
-        if target in cols:
-            rows[name] = {target: 1.0}                       # identity row
+        if target in model_cols:
+            rows[name] = {target: 1.0}
+        elif target in cols:
+            rows[name] = to_columns({target: 1.0})
         elif target in resolved:
-            rows[name] = {p: c for p, c in resolved[target].items() if p in cols}
+            rows[name] = to_columns(
+                {p: c for p, c in resolved[target].items() if p in cols})
         else:
             rows[name] = {}
             missing.append(name)
 
-    stoich = pd.DataFrame(0.0, index=list(species_list), columns=cols)
+    final_cols = list(dict.fromkeys(smap.get(c, (c, 1.0))[0] for c in cols))
+    stoich = pd.DataFrame(0.0, index=list(species_list), columns=final_cols)
     for name, row in rows.items():
         for prim, coef in row.items():
             stoich.loc[name, prim] = coef
@@ -460,15 +518,15 @@ def build_stoich_matrix(reactions, components, species_list, filepath=None,
     if verbose and used_alias:
         print("Alias PHREEQC -> ORCHESTRA : "
               + ", ".join(f"{k} -> {v}" for k, v in used_alias.items()))
-    # if verbose and missing:
-        # print("ATTENTION, absentes de la base ORCHESTRA (ligne de zeros) : "
-              # + ", ".join(sorted(missing))
-              # + "\n  -> ajoute-les au .inp (@species/@logKreaction, ou "
-                # "@surfspecies pour un echangeur) puis re-exporte le fichier.")
+    if verbose and missing:
+        warningManager.warn("ORCHESTRA : not in ORCHESTRA database : "
+                            + ", ".join(sorted(missing))
+                            + "\n  -> Consider adding them in the '.inp' file (e.g., @species/@logKreaction, etc.) ?")
+    stoich = stoich.loc[:, (stoich != 0).any(axis=0)]
     return stoich
 
 
-build_stoich_matrixD = build_stoich_matrix     # backward-compatible alias
+build_stoich_matrixD = build_stoich_matrix
 
 
 
@@ -494,9 +552,8 @@ def align_stoich(stoich, species_list, component_list_, strict=True, verbose=Tru
     missing_cols = [c for c in component_list_ if c not in stoich.columns]
     if strict and (missing_rows or missing_cols):
         raise KeyError(
-            f"Absents de la matrice -- especes: {missing_rows}, "
-            f"composants: {missing_cols}. Reconstruis la matrice avec ces "
-            f"noms dans species_list, ou passe strict=False pour des zeros.")
+            f"Not in the species matrix : {missing_rows}, "
+            f"components: {missing_cols}. Re-build this matriw with these species in species_list, or give strict=False for zeros values.")
  
     out = stoich.reindex(index=species_list, columns=component_list_,
                          fill_value=0.0)
@@ -506,10 +563,6 @@ def align_stoich(stoich, species_list, component_list_, strict=True, verbose=Tru
         lost = {c: float(stoich.loc[species_list, c].abs().sum())
                 for c in dropped if c in stoich.columns}
         lost = {c: v for c, v in lost.items() if v > 0}
-        # if lost:
-        #     print("Composants exclus de la matrice reduite (leur bilan de "
-        #           "masse n'est plus suivi) : "
-        #           + ", ".join(f"{c}" for c in lost))
     return out
  
 
@@ -520,7 +573,6 @@ def sorbed_species(filepath):
     return list(build_surface_species(filepath))
 
 
-# ==========================================================================
 if __name__ == '__main__':
     path = sys.argv[1] if len(sys.argv) > 1 else 'chemistry1.inp'
 

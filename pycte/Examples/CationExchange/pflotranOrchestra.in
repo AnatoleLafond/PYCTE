@@ -1,0 +1,324 @@
+#Description: cation exchange test case
+SIMULATION
+  SIMULATION_TYPE SUBSURFACE
+  PROCESS_MODELS
+    SUBSURFACE_TRANSPORT transport
+      MODE GIRT
+    /
+  /
+END
+SUBSURFACE
+#=========================== numerical methods ================================
+NUMERICAL_METHODS TRANSPORT
+  TIMESTEPPER
+    TS_ACCELERATION 8
+    MAX_STEPS 100000
+  /
+  NEWTON_SOLVER
+    PRECONDITIONER_MATRIX_TYPE AIJ
+    RTOL 1.d-8
+    ATOL 1.d-8
+    STOL 1.d-30
+  /
+  LINEAR_SOLVER
+    SOLVER DIRECT
+  /
+END
+SPECIFIED_VELOCITY
+  UNIFORM? YES
+  DATASET 2.778e-6 0.d0 0.d0 m/s
+END
+# == chemistry ================================================================
+CHEMISTRY
+  PRIMARY_SPECIES
+    H+
+    #CaX2pycte
+    #KXpycte
+    #NaXpycte
+    #NH4Xpycte
+    Ca+2pycte
+    CaOH+pycte
+    Cl-pycte
+    H+pycte
+    H2pycte
+    K+pycte
+    N2pycte
+    Na+pycte
+    NaOHpycte
+    NH3pycte
+    NH4+pycte
+    NO2-pycte
+    NO3-pycte
+    O2pycte
+    OH-pycte
+  /
+  SECONDARY_SPECIES
+    OH-
+  /
+  IMMOBILE_SPECIES
+    Exch_X2-Capycte
+    Exch_X-Kpycte
+    Exch_X-Napycte
+    Exch_X-NH4pycte
+  /
+  DATABASE cationExch.txt
+  LOG_FORMULATION
+  ACTIVITY_COEFFICIENTS ! NEWTON_ITERATION
+  MOLAL
+
+  OUTPUT
+    Exch_X2-Capycte
+    Exch_X-Kpycte
+    Exch_X-Napycte
+    Exch_X-NH4pycte
+    Ca+2pycte
+    CaOH+pycte
+    Cl-pycte
+    H+pycte
+    H2pycte
+    K+pycte
+    N2pycte
+    Na+pycte
+    NaOHpycte
+    NH3pycte
+    NH4+pycte
+    NO2-pycte
+    NO3-pycte
+    O2pycte
+    OH-pycte
+    TOTAL
+  /
+END
+# == reference variables ======================================================
+REFERENCE_POROSITY 1
+# == discretization ===========================================================
+GRID
+  TYPE STRUCTURED
+  NXYZ 41 1 1
+  BOUNDS
+    0.d0 0.d0 0.d0
+    0.08d0 1.d0 1.d0
+  /
+END
+# == fluid properties =========================================================
+FLUID_PROPERTY
+  DIFFUSION_COEFFICIENT 0 #1.d-9
+END
+# == material properties ======================================================
+MATERIAL_PROPERTY HD
+  ID 1
+  POROSITY 1 # 0.61
+  TORTUOSITY 1.0
+  LONGITUDINAL_DISPERSIVITY 0.002
+  #PERMEABILITY
+  #  PERM_ISO 5.43d-13
+  /
+#END
+# == output ===================================================================
+OUTPUT
+  TIMES s 720
+  FORMAT TECPLOT POINT
+END
+# == times ====================================================================
+TIME
+  FINAL_TIME 720 s
+  INITIAL_TIMESTEP_SIZE 1. s
+  MAXIMUM_TIMESTEP_SIZE 20. s
+  MAXIMUM_TIMESTEP_SIZE 1. s at 10200. s
+  MAXIMUM_TIMESTEP_SIZE 20. s at 10350 s
+  MAXIMUM_TIMESTEP_SIZE 1. s at 33300 s
+  MAXIMUM_TIMESTEP_SIZE 20. s at 33600 s
+END
+# == regions ==================================================================
+REGION all
+  COORDINATES
+    -1.d20 -1.d20 -1.d20
+    1.d20 1.d20 1.d20
+  /
+END
+REGION west
+  FACE WEST
+  COORDINATES
+    0. 0. 0.
+    0. 1. 1.
+  /
+END
+REGION east
+  FACE EAST
+  COORDINATES
+    0.08 0. 0.
+    0.08 1. 1.
+  /
+END
+# == transport conditions =====================================================
+TRANSPORT_CONDITION Initial
+  TYPE DIRICHLET
+  CONSTRAINT_LIST
+    0.d0 Initial
+  /
+END
+TRANSPORT_CONDITION east
+  TYPE DIRICHLET
+  CONSTRAINT_LIST
+    0.d0 Initial
+  /
+END
+TRANSPORT_CONDITION west
+  TYPE DIRICHLET
+  CONSTRAINT_LIST
+    0.d0    Inlet1
+  /
+END
+# == couplers =================================================================
+INITIAL_CONDITION Initial
+  TRANSPORT_CONDITION Initial
+  REGION all
+END
+BOUNDARY_CONDITION
+  TRANSPORT_CONDITION west
+  REGION west
+END
+BOUNDARY_CONDITION
+  TRANSPORT_CONDITION east
+  REGION east
+END
+# == stratigraphy =============================================================
+STRATA
+  MATERIAL HD
+  REGION all
+END
+# == transport constraints ====================================================
+CONSTRAINT Initial
+  CONCENTRATIONS
+    #CaX2pycte   1.d-40  T DATASET CaX2pycte_init
+    #KXpycte     1.d-40  T DATASET KXpycte_init
+    #NaXpycte    1.d-40  T DATASET NaXpycte_init
+    #NH4Xpycte   1.d-40  T DATASET NH4Xpycte_init
+    Ca+2pycte   0.6d-3  T DATASET Capycte_init
+    CaOH+pycte  1.d-40  T DATASET CaOHpycte_init
+    Cl-pycte    1.3d-3  T DATASET Clpycte_init
+    H+pycte     1.d-40  T DATASET Hpycte_init
+    H2pycte     1.d-40  T DATASET H2pycte_init
+    K+pycte     1.d-40  T DATASET Kpycte_init
+    N2pycte     1.d-40  T DATASET N2pycte_init
+    Na+pycte    1.d-40  T DATASET Napycte_init
+    NaOHpycte   1.d-40  T DATASET NaOHpycte_init
+    NH3pycte    1.d-40  T DATASET NH3pycte_init
+    NH4+pycte   1.d-40  T DATASET NH4pycte_init
+    NO2-pycte   1.d-40  T DATASET NO2pycte_init
+    NO3-pycte   1.d-40  T DATASET NO3pycte_init
+    O2pycte     1.d-40  T DATASET O2pycte_init
+    OH-pycte    1.d-40  T DATASET OHpycte_init
+    H+          1.d-7   T
+  /
+IMMOBILE
+  Exch_X2-Capycte  DATASET Exch_X2-Capycte_init
+  Exch_X-Kpycte    DATASET Exch_X-Kpycte_init
+  Exch_X-Napycte   DATASET Exch_X-Napycte_init
+  Exch_X-NH4pycte  DATASET Exch_X-NH4pycte_init
+/
+END
+# == initial-condition datasets (one per species, charge stripped) ============
+DATASET Exch_X2-Capycte_init
+  HDF5_DATASET_NAME Exch_X2-Cai
+  FILENAME testpycte.h5
+END
+DATASET Exch_X-Kpycte_init
+  HDF5_DATASET_NAME Exch_X-Ki
+  FILENAME testpycte.h5
+END
+DATASET Exch_X-Napycte_init
+  HDF5_DATASET_NAME Exch_X-Nai
+  FILENAME testpycte.h5
+END
+DATASET Exch_X-NH4pycte_init
+  HDF5_DATASET_NAME Exch_X-NH4i
+  FILENAME testpycte.h5
+END
+DATASET Capycte_init
+  HDF5_DATASET_NAME Ca+2i
+  FILENAME testpycte.h5
+END
+DATASET CaOHpycte_init
+  HDF5_DATASET_NAME CaOH+i
+  FILENAME testpycte.h5
+END
+DATASET Clpycte_init
+  HDF5_DATASET_NAME Cl-i
+  FILENAME testpycte.h5
+END
+DATASET Hpycte_init
+  HDF5_DATASET_NAME H+i
+  FILENAME testpycte.h5
+END
+DATASET H2pycte_init
+  HDF5_DATASET_NAME H2i
+  FILENAME testpycte.h5
+END
+DATASET Kpycte_init
+  HDF5_DATASET_NAME K+i
+  FILENAME testpycte.h5
+END
+DATASET N2pycte_init
+  HDF5_DATASET_NAME N2i
+  FILENAME testpycte.h5
+END
+DATASET Napycte_init
+  HDF5_DATASET_NAME Na+i
+  FILENAME testpycte.h5
+END
+DATASET NaOHpycte_init
+  HDF5_DATASET_NAME NaOHi
+  FILENAME testpycte.h5
+END
+DATASET NH3pycte_init
+  HDF5_DATASET_NAME NH3i
+  FILENAME testpycte.h5
+END
+DATASET NH4pycte_init
+  HDF5_DATASET_NAME NH4+i
+  FILENAME testpycte.h5
+END
+DATASET NO2pycte_init
+  HDF5_DATASET_NAME NO2-i
+  FILENAME testpycte.h5
+END
+DATASET NO3pycte_init
+  HDF5_DATASET_NAME NO3-i
+  FILENAME testpycte.h5
+END
+DATASET O2pycte_init
+  HDF5_DATASET_NAME O2i
+  FILENAME testpycte.h5
+END
+DATASET OHpycte_init
+  HDF5_DATASET_NAME OH-i
+  FILENAME testpycte.h5
+END
+# == inlet ====================================================================
+CONSTRAINT Inlet1
+  CONCENTRATIONS
+    #CaX2pycte   1.d-40 T
+    #KXpycte     1.d-40 T
+    #NaXpycte    1.d-40 T
+    #NH4Xpycte   1.d-40 T
+    Ca+2pycte   0.6d-3 T
+    CaOH+pycte  1.d-40 T
+    Cl-pycte    1.3d-3 T
+    H+pycte     1.d-40 T
+    H2pycte     1.d-40 T
+    K+pycte     1.d-40 T
+    N2pycte     1.d-40 T
+    Na+pycte    1.d-40 T
+    NaOHpycte   1.d-40 T
+    NH3pycte    1.d-40 T
+    NH4+pycte   1.d-40 T
+    NO2-pycte   1.d-40 T
+    NO3-pycte   1.d-40 T
+    O2pycte     1.d-40 T
+    OH-pycte    1.d-40 T
+    H+          1.d-7  T
+
+  /
+END
+END_SUBSURFACE

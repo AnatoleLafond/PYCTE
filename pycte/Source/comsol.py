@@ -4,6 +4,14 @@ import sys
 import importlib.util
 import os
 import numpy as np
+try:
+    from . import outputManager
+    from . import warningManager
+except ImportError:
+    import outputManager
+    import warningManager
+
+_comsol = {}
 
 def writeTime(tps, arr=2):
     if tps >= 3600 * 24:
@@ -42,33 +50,19 @@ def Convert_Species_PhreeqC_to_COMSOL(entry_list):
         exit_list.append(name)
     return exit_list
 
-
 def initComsol(centralDict):
-    """
-    Démarre le client COMSOL et charge le modèle UNE SEULE FOIS.
-
-    Le client / modèle / javamodel sont stockés dans centralDict
-    ('comsolClient', 'comsolModel', 'comsolJavaModel') afin que
-    transportComsol() les réutilise à chaque pas de temps sans jamais
-    relancer COMSOL ni recharger le modèle. Cette fonction contient donc
-    toute la logique d'attente de licence, qui ne s'exécute plus qu'une
-    seule fois pour l'ensemble de la simulation.
-    """
     import mph
-
     scriptWarning = ""
     warning = 0
     waitingLicence = 0
     init = 0
-
     inputPath = os.path.join(centralDict['inputPath'], 'inputTransport.txt')
-
     licenceTaken = False
     licence = False
-    startWaiting = 0
+    startWaiting = time.perf_counter()         
     while not licence:
         ref = time.perf_counter()
-        try:    
+        try:
             client = mph.start()
             if centralDict['comsolCore']: client = mph.Client(cores=centralDict['comsolCore'])
             model = client.load(f"{centralDict['trsptPath']}")
@@ -77,50 +71,32 @@ def initComsol(centralDict):
             init += time.perf_counter() - ref
             licence = True
             if licenceTaken:
-                waitingLicence = time.perf_counter() - startWaiting 
+                waitingLicence = time.perf_counter() - startWaiting  
                 print("Licence released :)", end=" ", flush=True)
-
         except Exception as r:
             if not licenceTaken:
-                startWaiting = time.time()
                 print(r)
                 print("Waiting for a licence ? ...", flush=True)
                 licenceTaken = True
-                scriptWarning += f"COMSOL waiting licence : {writeTime(waitingLicence)}\n"
-            if licenceTaken: time.sleep(3)
-
+            time.sleep(3)
     if licenceTaken:
         warning += 1
         print(f"({writeTime(waitingLicence)} of waiting)", flush=True)
-        scriptWarning += f"COMSOL init : {writeTime(waitingLicence)} of waiting \n"
-
-    centralDict['comsolClient'] = client
-    centralDict['comsolModel'] = model
-    centralDict['comsolJavaModel'] = javamodel
-
+        scriptWarning += f"COMSOL init : {writeTime(waitingLicence)} of waiting\n"  
+    _comsol['comsolClient'] = client
+    _comsol['comsolModel'] = model
+    _comsol['comsolJavaModel'] = javamodel
     return centralDict, warning, scriptWarning, waitingLicence, init
 
 
 def closeComsol(centralDict):
-    """
-    A appeler UNE SEULE FOIS, à la toute fin de la simulation (après le
-    dernier pas de temps), pour libérer le modèle et rendre la licence
-    COMSOL. Ne pas appeler entre deux pas de temps : ça obligerait à tout
-    recharger au pas suivant.
-    """
-    client = centralDict.get('comsolClient')
+    client = _comsol.get('comsolClient')
     if client is not None:
         try:
             client.clear()
         except Exception as r:
-            print(f"Warning while closing COMSOL client: {r}")
-
-    centralDict.pop('comsolClient', None)
-    centralDict.pop('comsolModel', None)
-    centralDict.pop('comsolJavaModel', None)
-
-    return centralDict
-
+            warningManager.warn(f"COMSOL : the COMSOL client could not be closed : {r}")
+    _comsol.clear()
 
 def transportComsol(centralDict):
 
@@ -141,9 +117,8 @@ def transportComsol(centralDict):
         scriptWarning += initScriptWarning
         init += initTime
 
-    client = centralDict['comsolClient']
-    model = centralDict['comsolModel']
-    javamodel = centralDict['comsolJavaModel']
+    model = _comsol['comsolModel']
+    javamodel = _comsol['comsolJavaModel']
 
     try:
         ref = time.perf_counter()
@@ -170,24 +145,17 @@ def transportComsol(centralDict):
             model.solve()
             calcTime += time.perf_counter() - ref
         except Exception as r:
+            # modele en echec sauve dans le dossier du run : le modele d'origine (ex. celui d'un exemple installe)
+            # reste intact
+            model.save(os.path.join(centralDict['inputPath'],
+                                    os.path.splitext(os.path.basename(centralDict['trsptPath']))[0] + "_failed.mph"))
             print(r)
             with open("warning.log", "a") as warningLog: warningLog.write(f"COMSOL, t={centralDict['tStep']}{centralDict['timeUnit']}, time-step n° {centralDict['lStep']} : {r}\n")
             abort = True
 
     if not abort:
 
-        #### appears to not work all the times ...
-        # spc = [s if s in centralDict['transportedSpecies'] else s+'i' for s in centralDict['systemSpeciation']]
-        # coord_values = model.evaluate(['x', 'y', 'z'][:centralDict['geometry']],inner='last')
-        # coord = pd.DataFrame(
-        #     {name: values for name, values in zip(['x', 'y', 'z'], coord_values)})
 
-        # values = model.evaluate(Convert_Species_PhreeqC_to_COMSOL(spc), inner="last")
-        # commMtrx_Comsol = pd.DataFrame(
-        #     np.array(values).T/1000, # if you want to correct with the density, here it is
-        #     columns=centralDict['systemSpeciation']
-        # )
-        # commMtrx_Comsol = pd.concat([coord,commMtrx_Comsol], axis=1)
 
 
         outputPath = os.path.join(centralDict['inputPath'], 'outputTransport.txt')
@@ -198,50 +166,26 @@ def transportComsol(centralDict):
         javamodel.result().export("data1").run();
         init += time.perf_counter() - ref
 
-        if centralDict['output'] and centralDict['output'].get('transport') and (centralDict['lStep']+1) in centralDict['output']['transport'] :
-            if centralDict['outputComsol']:
-                for i,tag in enumerate(centralDict['outputComsol']): # user defined variables ..
+        exports = [(centralDict['lStep'] + 1, "last")] + ([(0, "first")] if centralDict['lStep'] == 0 else [])
+        for step, level in exports:
+            if not outputManager.wanted(centralDict, 'transport', step):
+                continue
+            for tag in centralDict['outputComsol']:
+                formats = [("text", f'Transport{tag}', "txt")] + ([("vtu", f'TransportVTU{tag}', "vtu")] if centralDict['comsolVTU'] else [])
+                for exportType, pathKey, ext in formats:
                     ref = time.perf_counter()
-                    path = os.path.join(centralDict['paths'][f'Transport{tag}'], f'COMSOL_{centralDict["lStep"]+1}.txt')
-                    javamodel.result().export(f"{tag}").setIndex("looplevelinput", "last", 0);
-                    javamodel.result().export(f"{tag}").set("exporttype", "text");
+                    path = os.path.join(centralDict['paths'][pathKey], f'COMSOL_{step}.{ext}')
+                    javamodel.result().export(f"{tag}").setIndex("looplevelinput", level, 0);
+                    javamodel.result().export(f"{tag}").set("exporttype", exportType);
                     javamodel.result().export(f"{tag}").set("filename", f"{path}");
                     javamodel.result().export(f"{tag}").run();
                     init += time.perf_counter() - ref
-                    if centralDict['lStep'] == 0:
-                        path = os.path.join(centralDict['paths'][f'Transport{tag}'],'COMSOL_0.txt')
-                        ref = time.perf_counter()
-                        javamodel.result().export(f"{tag}").setIndex("looplevelinput", "first", 0);
-                        javamodel.result().export(f"{tag}").set("exporttype", "text");
-                        javamodel.result().export(f"{tag}").set("filename", f"{path}");
-                        javamodel.result().export(f"{tag}").run();
-                        init += time.perf_counter() - ref
-                    if centralDict['comsolVTU']:
-                        path = os.path.join(centralDict['paths'][f'TransportVTU{tag}'],f'COMSOL_{centralDict["lStep"]+1}.vtu')
-                        ref = time.perf_counter()
-                        javamodel.result().export(f"{tag}").setIndex("looplevelinput", "last", 0);
-                        javamodel.result().export(f"{tag}").set("exporttype", "vtu");
-                        javamodel.result().export(f"{tag}").set("filename", f"{path}");
-                        javamodel.result().export(f"{tag}").run();
-                        init += time.perf_counter() - ref
-                        if centralDict['lStep'] == 0:
-                            path = os.path.join(centralDict['paths'][f'TransportVTU{tag}'],'COMSOL_0.vtu')
-                            ref = time.perf_counter()
-                            javamodel.result().export(f"{tag}").setIndex("looplevelinput", "first", 0);
-                            javamodel.result().export(f"{tag}").set("exporttype", "vtu");
-                            javamodel.result().export(f"{tag}").set("filename", f"{path}");
-                            javamodel.result().export(f"{tag}").run();
-                            init += time.perf_counter() - ref
 
-
-
-        # col =  centralDict["coord"] + centralDict['systemSpeciation'] + (centralDict['crossDependencies']['speciation']['total'] if centralDict['crossDependencies'] and centralDict['crossDependencies'].get('speciation') else [])
         commMtrx_Comsol = pd.read_csv(outputPath,sep=r"\s+",comment="%",header=None, names=list(centralDict['commMtrx'].columns))
-        # results = [commMtrx_Comsol, warning, scriptWarning,waitingLicence, abort,calcTime]
-
-
-
-
+        
+        
+        closeComsol(centralDict)
+        
         return commMtrx_Comsol, warning, scriptWarning,waitingLicence, abort,calcTime, init
 
     else:
@@ -260,39 +204,48 @@ def trspt(centralDict):
         with open("warning.log", "a") as warningLog:
             warningLog.write(f"COMSOL, time = {centralDict['tStep']}{centralDict['timeUnit']}, time step n°{centralDict['lStep']+1} : Fatal COMSOL error. Aborting run.")
         print('Fatal COMSOL error. Aborting run.')
+        closeComsol(centralDict)            # libere le modele (sinon fichier verrouille pour un run suivant)
         sys.exit()
 
-    try:
-        assert len(comm) == len(centralDict['commMtrx'])
-    except:
-        print('Mtrx post transport length different from input: post trspt: ', len(comm), ' input: ', len(centralDict['commMtrx']))
-        print('2nd try')
-        comm, warning, scriptWarning,waitingLicence, abort, calcTime, init = transportComsol(centralDict)
-
-        if warning:
-            with open("warning.log", "a") as warningLog:
-                warningLog.write(f"COMSOL, time = {centralDict['tStep']}{centralDict['timeUnit']}, time step n°{centralDict['lStep']+1} : the {warning} following warnings occured ...\n {scriptWarning}")
-        if abort:
-            with open("warning.log", "a") as warningLog:
-                warningLog.write(f"COMSOL, time = {centralDict['tStep']}{centralDict['timeUnit']}, time step n°{centralDict['lStep']+1} : Fatal COMSOL error. Aborting run.")
-            print('Fatal COMSOL error. Aborting run.')
-            sys.exit()
-
+    if centralDict["preliminarEquilibrium"]:
+    
         try:
             assert len(comm) == len(centralDict['commMtrx'])
         except:
-
             print('Mtrx post transport length different from input: post trspt: ', len(comm), ' input: ', len(centralDict['commMtrx']))
-            print('aborting')
-            sys.exit()
+            print('2nd try')
+            comm, warning, scriptWarning,waitingLicence, abort, calcTime, init = transportComsol(centralDict)
+
+            if warning:
+                with open("warning.log", "a") as warningLog:
+                    warningLog.write(f"COMSOL, time = {centralDict['tStep']}{centralDict['timeUnit']}, time step n°{centralDict['lStep']+1} : the {warning} following warnings occured ...\n {scriptWarning}")
+            if abort:
+                with open("warning.log", "a") as warningLog:
+                    warningLog.write(f"COMSOL, time = {centralDict['tStep']}{centralDict['timeUnit']}, time step n°{centralDict['lStep']+1} : Fatal COMSOL error. Aborting run.")
+                print('Fatal COMSOL error. Aborting run.')
+                closeComsol(centralDict)
+                sys.exit()
+            
+            try:
+                assert len(comm) == len(centralDict['commMtrx'])
+            except:
+    
+                print('Mtrx post transport length different from input: post trspt: ', len(comm), ' input: ', len(centralDict['commMtrx']))
+                print('aborting')
+                sys.exit()
 
 
+    if centralDict['lStep'] == len(centralDict['dtpycte'])-1:
+        closeComsol(centralDict)
+        centralDict.pop('comsolClient', None)
+        centralDict.pop('comsolModel', None)
+        centralDict.pop('comsolJavaModel', None)
 
     centralDict.update({
             "commMtrx": comm,
             "waitingTime" : centralDict['waitingTime'] + waitingLicence,
             "COMSOLCalcTime_WallClock": centralDict["COMSOLCalcTime_WallClock"] + calcTime,
-            "COMSOLCalcTime_ProcessorTime": centralDict["COMSOLCalcTime_ProcessorTime"] + calcTime, # not correct but i dont have access to that info (to my knowledge)
+            "COMSOLCalcTime_ProcessorTime": centralDict["COMSOLCalcTime_ProcessorTime"] + calcTime,
             "COMSOLInterfTime_WallClock": centralDict['COMSOLInterfTime_WallClock'] + time.time() - startComsol - calcTime - init,
             "COMSOLInitTime" : centralDict["COMSOLInitTime"] + init,
             "COMSOLTotalTime" : centralDict["COMSOLTotalTime"] + time.time() - startComsol,

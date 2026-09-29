@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# build (python -m build, pip install -e .)
+build/
+dist/
+*.egg-info/
+
+# sorties de runs ecrites dans les dossiers des exemples (ORCHESTRA, PFLOTRAN)
+pycte/Examples/**/orchestra_output.log
+pycte/Examples/**/pflotran*.tec
+pycte/Examples/**/pflotran*.out
+pycte/Examples/**/pflotran.log
+pycte/Examples/**/testpycte.h5

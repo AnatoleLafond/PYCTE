@@ -1,0 +1,520 @@
+//*********  Version: 05 March 2026 9:43  *******
+@NrDigits: 12  // number of decimal places in reaction coefficients. 
+ //@rewriteReactions:   //indicates that reactions are rewritten in terms of primary entities. 
+ //@include_molar_volume_parameters:   //include molar volume parameters from phreeqc database in species definitions. 
+
+//********* The database file(s) *******
+// This section lists the database files that are used by the interactive chemistry editor
+// The database file is not used during the calculations!
+// Syntax for local files:                   @database: minteq.txt
+// Syntax for files on the internet:         @database: www.meeussen.nl/orchestra/minteqv4.txt
+
+@database: PHREEQC_Davies_e-_ThermoChimie_v12a.dat
+//********* End of the database file(s) *******
+
+
+//********* Extra text 0 *******
+
+@class: extra_text_0(){
+
+@Calc: (1,  "watervolume = porosity * totvolume * saturation")     // is total water volume per cell
+@Calc: (1,  "gasvolume   = porosity * (1-saturation)")             // is tot gas volume per liter water
+@Calc: (1,  "SL = ((1-porosity)*density) / (porosity*saturation)")
+
+
+//@writeExpandedText:
+}
+@extra_text_0()
+//********* End of extra text 0 *******
+
+
+//********* The variables *******
+@Var: CLAY_kgkg 0 // fraction clay of clay particle
+@Var: DFA_kgl 0 // concentration of DFA
+@Var: DHA_kgl 0 // concentration of DHA
+@Var: E.logact 1 // **
+@Var: Goethite_kgkg 0 // fraction goethite of goethite particle
+@Var: H+.logact 1 // **
+@Var: H.logact 1 // auto generated **
+@Var: H2O.logact 0 // 
+@Var: HFO_kgkg 0 // fraction hfo of hfo particle
+@GlobalVar: I .1 // 
+@Var: O.logact 0 // **
+@Var: SFA_kgkg 0 // fraction FA of FA particle
+@Var: SHA_kgkg 0 // fraction HA of HA particle
+@Var: SL 1 // 
+@Var: T 298.15 // 
+@Var: density 1 // 
+@Var: gasvolume 1 // gas filled volume (Liter gas/Liter pore solution
+@Var: pH -0.8450980400142568 // 
+@Var: pe -1.0791812460476249 // 
+@Var: porosity 1 // 
+@Var: saturation 1 // 
+@Var: totvolume 1 // 
+@Var: watervolume 1 // 
+//********* End of the variables *******
+
+
+//********* Extra text 1 *******
+@class: extra_text_1(){
+
+}
+@extra_text_1()
+//********* End of extra text 1 *******
+
+//********* The phases *******
+@phase(tot)
+@phase(literbulk)
+@link_phase(literbulk, tot, "totvolume")
+@phase(solid)
+@link_phase(solid, literbulk, "1")
+@phase(min)
+@link_phase(min, solid, "1")
+@phase(ads)
+@link_phase(ads, solid, "1")
+@phase(CLAY_part_l)
+@link_phase(CLAY_part_l, ads, "1")
+@phase(CLAY_part)
+@link_phase(CLAY_part, CLAY_part_l, "CLAY_kgkg*SL")
+@phase(HFO_part_l)
+@link_phase(HFO_part_l, ads, "1")
+@phase(HFO_part)
+@link_phase(HFO_part, HFO_part_l, "HFO_kgkg*SL")
+@phase(Goethite_part_l)
+@link_phase(Goethite_part_l, ads, "1")
+@phase(Goethite_part)
+@link_phase(Goethite_part, Goethite_part_l, "Goethite_kgkg*SL")
+@phase(SHA_part_l)
+@link_phase(SHA_part_l, ads, "1")
+@phase(SFA_part_l)
+@link_phase(SFA_part_l, ads, "1")
+@phase(kg)
+@phase(liter)
+@link_phase(liter, literbulk, "porosity")
+@link_phase(liter, kg, "1/SL")
+@phase(solution)
+@link_phase(solution, liter, "1")
+@phase(diss)
+@link_phase(diss, solution, "1")
+@phase(colloid)
+@link_phase(colloid, solution, "1")
+@phase(DHA_part)
+@link_phase(DHA_part, colloid, "1")
+@phase(HA_part)
+@link_phase(HA_part, DHA_part, "DHA_kgl")
+@link_phase(HA_part, SHA_part_l, "SHA_kgkg*SL")
+@phase(DFA_part)
+@link_phase(DFA_part, colloid, "1")
+@phase(FA_part)
+@link_phase(FA_part, DFA_part, "DFA_kgl")
+@link_phase(FA_part, SFA_part_l, "SFA_kgkg*SL")
+@phase(gas_l)
+@link_phase(gas_l, liter, "1")
+@phase(gas)
+@link_phase(gas, gas_l, "gasvolume/22.4")
+@end_of_gui_phases:
+//********* End of the phases *******
+
+//********* Extra text 2 *******
+@class: extra_text_2(){
+   @scan: objects2026.txt
+}
+@extra_text_2()
+//********* End of extra text 2 *******
+
+@davies()
+@calculate_water_activity()
+
+//********* The primary entities *******
+@entity(Tracer, tot, 0)
+@primary_entity(Tracer, -9.0, literbulk, 0.01)
+@entity(Al, tot, 0)
+@primary_entity(Al, -9.0, literbulk, 0.01)
+@entity(C, tot, 0)
+@primary_entity(C, -9.0, literbulk, 0.01)
+@entity(Ca, tot, 0)
+@primary_entity(Ca, -9.0, literbulk, 0.01)
+@entity(Cl, tot, 0)
+@primary_entity(Cl, -9.0, literbulk, 0.01)
+@Global: pe
+@Calc:(1, "E.logact = -pe")
+@entity(E, tot, 0)
+@primary_entity(E, pe, 7.0, lin, 0.1, literbulk, 0.01)
+@entity(Fe, tot, 0)
+@primary_entity(Fe, -9.0, literbulk, 0.01)
+@Global: pH
+@Calc:(1, "H.logact = -pH")
+@entity(H, tot, 0)
+@primary_entity(H, pH, 7.0, lin, 0.1, literbulk, 0.01)
+@entity(K, tot, 0)
+@primary_entity(K, -9.0, literbulk, 0.01)
+@entity(Mg, tot, 0)
+@primary_entity(Mg, -9.0, literbulk, 0.01)
+@entity(Na, tot, 0)
+@primary_entity(Na, -9.0, literbulk, 0.01)
+@Global: H2O.logact
+@Calc:(1, "O.logact = H2O.logact")
+@entity(O, tot, 0)
+@primary_entity(O, H2O.logact, -0.0)
+@entity(S, tot, 0)
+@primary_entity(S, -9.0, literbulk, 0.01)
+@entity(Si, tot, 0)
+@primary_entity(Si, -9.0, literbulk, 0.01)
+@entity(Sr, tot, 0)
+@primary_entity(Sr, -9.0, literbulk, 0.01)
+//****************************************
+//******************************
+
+//********* Extra text 2a **************
+@class: extra_text_2a(){
+}
+@extra_text_2a()
+//********* End of extra text 2a *******
+
+//********* The entities *******
+@species(Tracer_aq, 0)
+@logKreaction(Tracer_aq, 0, 1.0, Tracer)
+@species(Al+3, 3)
+@logKreaction(Al+3, 0, 1.0, Al)
+@entity(H[+1], tot, 0)
+@logKreaction(H[+1], 0, 1.0, H)
+@species(H+, 1)
+@logKreaction(H+, 0, 1.0, H[+1])
+@species(H4[SiO4], 0)
+@logKreaction(H4[SiO4], 0, 1.0, Si)
+@species(AlH3SiO4+2, 2)
+@logKreaction(AlH3SiO4+2, "(( (1.0 / log(10)) * ((-2.38 * log(10)) - (77382.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Al+3, -1.0, H+, 1.0, H4[SiO4])
+@entity(O[-2], tot, 0)
+@logKreaction(O[-2], 0, 1.0, O)
+@entity(H2O, liter, 55.6)
+@logKreaction(H2O, 0, 1.0, O[-2])
+@species(Al[OH]+2, 2)
+@logKreaction(Al[OH]+2, "(( (1.0 / log(10)) * ((-4.95 * log(10)) - (49759.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Al+3, -1.0, H+, 1.0, H2O)
+@species(Al[OH]2+, 1)
+@logKreaction(Al[OH]2+, "(( (1.0 / log(10)) * ((-10.58 * log(10)) - (98264.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Al+3, -2.0, H+, 2.0, H2O)
+@species(Al[OH]3, 0)
+@logKreaction(Al[OH]3, "(( (1.0 / log(10)) * ((-16.42 * log(10)) - (144686.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Al+3, -3.0, H+, 3.0, H2O)
+@species(Al[OH]4-, -1)
+@logKreaction(Al[OH]4-, "(( (1.0 / log(10)) * ((-22.87 * log(10)) - (180881.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Al+3, -4.0, H+, 4.0, H2O)
+@entity(S[+6], tot, 0)
+@logKreaction(S[+6], 0, 1.0, S)
+@species(SO4-2, -2)
+@logKreaction(SO4-2, 0, 1.0, S[+6])
+@species(Al[SO4]+, 1)
+@logKreaction(Al[SO4]+, "(( (1.0 / log(10)) * ((3.17 * log(10)) - (18869.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Al+3, 1.0, SO4-2)
+@species(Mg+2, 2)
+@logKreaction(Mg+2, 0, 1.0, Mg)
+@mineral(Brucite[s])
+@logKreaction(Brucite[s], "-1 * (( (1.0 / log(10)) * ((17.1 * log(10)) - (-114160.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -2.0, H+, 2.0, H2O, 1.0, Mg+2)
+@species(Ca+2, 2)
+@logKreaction(Ca+2, 0, 1.0, Ca)
+@mineral(C3AH6[s])
+@logKreaction(C3AH6[s], "-1 * (( (1.0 / log(10)) * ((80.32 * log(10)) - (-584260.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, Al+3, 3.0, Ca+2, -12.0, H+, 12.0, H2O)
+@entity(e-, diss, 0)
+@logKreaction(e-, 0, 1.0, E)
+@entity(Fe[+3], tot, 0)
+@logKreaction(Fe[+3], "(( (1.0 / log(10)) * ((-13.05 * log(10)) - (40239.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Fe, -1.0, e-)
+@species(Fe+3, 3)
+@logKreaction(Fe+3, 0, 1.0, Fe[+3])
+@mineral(C4FH13[s])
+@logKreaction(C4FH13[s], "-1 * (( (1.0 / log(10)) * ((95.08 * log(10)) - (-571312.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 4.0, Ca+2, 2.0, Fe+3, -14.0, H+, 20.0, H2O)
+@entity(C[-4], tot, 0)
+@logKreaction(C[-4], "(( (1.0 / log(10)) * ((37.93 * log(10)) - (-270166.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, C, 10.0, H+, -3.0, H2O, 8.0, e-)
+@species(CH4, 0)
+@logKreaction(CH4, 0, 1.0, C[-4])
+@species(CH3-, -1)
+@logKreaction(CH3-, "((-46.0))", 1.0, CH4, -1.0, H+)
+@entity(C[+4], tot, 0)
+@logKreaction(C[+4], 0, 1.0, C)
+@species(CO3-2, -2)
+@logKreaction(CO3-2, 0, 1.0, C[+4])
+@species(CO, 0)
+@logKreaction(CO, "(( (1.0 / log(10)) * ((11.6 * log(10)) - (-17390.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, CO3-2, 4.0, H+, -2.0, H2O, 2.0, e-)
+@species(CO2, 0)
+@logKreaction(CO2, "(( (1.0 / log(10)) * ((16.68 * log(10)) - (-23860.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, CO3-2, 2.0, H+, -1.0, H2O)
+@mineral(CSH0_8[s])
+@logKreaction(CSH0_8[s], "-1 * (( (1.0 / log(10)) * ((11.05 * log(10)) - (-47646.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 0.8, Ca+2, -1.6, H+, 0.34, H2O, 1.0, H4[SiO4])
+@mineral(CSH1_2[s])
+@logKreaction(CSH1_2[s], "-1 * (( (1.0 / log(10)) * ((19.3 * log(10)) - (-88600.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.2, Ca+2, -2.4, H+, 1.26, H2O, 1.0, H4[SiO4])
+@mineral(CSH1_6[s])
+@logKreaction(CSH1_6[s], "-1 * (( (1.0 / log(10)) * ((28.0 * log(10)) - (-133313.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.6, Ca+2, -3.2, H+, 2.18, H2O, 1.0, H4[SiO4])
+@species(CaCO3, 0)
+@logKreaction(CaCO3, "(( (1.0 / log(10)) * ((3.22 * log(10)) - (14830.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, CO3-2, 1.0, Ca+2)
+@species(Cl-, -1)
+@logKreaction(Cl-, 0, 1.0, Cl)
+@species(CaCl+, 1)
+@logKreaction(CaCl+, "(( (1.0 / log(10)) * ((-0.29 * log(10)) - (7150.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Ca+2, 1.0, Cl-)
+@species(CaCl2, 0)
+@logKreaction(CaCl2, "(( (1.0 / log(10)) * ((-0.64 * log(10)) - (-5857.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Ca+2, 2.0, Cl-)
+@species(Ca[H3SiO4]+, 1)
+@logKreaction(Ca[H3SiO4]+, "(( (1.0 / log(10)) * ((-8.83 * log(10)) - (31633.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Ca+2, -1.0, H+, 1.0, H4[SiO4])
+@species(Ca[HCO3]+, 1)
+@logKreaction(Ca[HCO3]+, "(( (1.0 / log(10)) * ((11.43 * log(10)) - (-23595.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, CO3-2, 1.0, Ca+2, 1.0, H+)
+@species(Ca[OH]+, 1)
+@logKreaction(Ca[OH]+, "(( (1.0 / log(10)) * ((-12.78 * log(10)) - (77207.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Ca+2, -1.0, H+, 1.0, H2O)
+@entity(S[+2], tot, 0)
+@logKreaction(S[+2], "(( (1.0 / log(10)) * ((38.57 * log(10)) - (-262756.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 10.0, H+, -5.0, H2O, 2.0, S, 8.0, e-)
+@species(S2O3-2, -2)
+@logKreaction(S2O3-2, 0, 1.0, S[+2])
+@species(Ca[S2O3], 0)
+@logKreaction(Ca[S2O3], "(( (1.0 / log(10)) * ((1.35 * log(10)) - (3786.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Ca+2, 1.0, S2O3-2)
+@species(Ca[SO4], 0)
+@logKreaction(Ca[SO4], "(( (1.0 / log(10)) * ((2.31 * log(10)) - (4292.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Ca+2, 1.0, SO4-2)
+@mineral(Calcite[s])
+@logKreaction(Calcite[s], "-1 * (( (1.0 / log(10)) * ((-8.48 * log(10)) - (-10620.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, CO3-2, 1.0, Ca+2)
+@species(Sr+2, 2)
+@logKreaction(Sr+2, 0, 1.0, Sr)
+@mineral(Celestite[s])
+@logKreaction(Celestite[s], "-1 * (( (1.0 / log(10)) * ((-6.62 * log(10)) - (-2451.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, SO4-2, 1.0, Sr+2)
+@species(Cl2, 0)
+@logKreaction(Cl2, "(( (1.0 / log(10)) * ((-47.21 * log(10)) - (310760.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, Cl-, -2.0, e-)
+@species(ClO4-, -1)
+@logKreaction(ClO4-, "(( (1.0 / log(10)) * ((-187.79 * log(10)) - (1182300.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Cl-, -8.0, H+, 4.0, H2O, -8.0, e-)
+@mineral(Dolomite[s])
+@logKreaction(Dolomite[s], "-1 * (( (1.0 / log(10)) * ((-17.13 * log(10)) - (-35960.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, CO3-2, 1.0, Ca+2, 1.0, Mg+2)
+@mineral(Ettringite-Fe[s])
+@logKreaction(Ettringite-Fe[s], "-1 * (( (1.0 / log(10)) * ((54.55 * log(10)) - (-346706.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 6.0, Ca+2, 2.0, Fe+3, -12.0, H+, 38.0, H2O, 3.0, SO4-2)
+@mineral(Ettringite[s])
+@logKreaction(Ettringite[s], "-1 * (( (1.0 / log(10)) * ((56.97 * log(10)) - (-379830.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, Al+3, 6.0, Ca+2, -12.0, H+, 38.0, H2O, 3.0, SO4-2)
+@entity(Fe[+2], tot, 0)
+@logKreaction(Fe[+2], 0, 1.0, Fe)
+@species(Fe+2, 2)
+@logKreaction(Fe+2, 0, 1.0, Fe[+2])
+@species(Fe2[OH]2+4, 4)
+@logKreaction(Fe2[OH]2+4, "(( (1.0 / log(10)) * ((-2.82 * log(10)) - (44000.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, Fe+3, -2.0, H+, 2.0, H2O)
+@species(Fe3[OH]4+5, 5)
+@logKreaction(Fe3[OH]4+5, "(( (1.0 / log(10)) * ((-6.3 * log(10)) - (59831.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 3.0, Fe+3, -4.0, H+, 4.0, H2O)
+@species(FeCO3, 0)
+@logKreaction(FeCO3, "(( (1.0 / log(10)) * ((5.27 * log(10)) - (-3367.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, CO3-2, 1.0, Fe+2)
+@species(FeCl+, 1)
+@logKreaction(FeCl+, "(( (1.0 / log(10)) * ((1.0 * log(10)) - (21551.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Cl-, 1.0, Fe+2)
+@species(FeCl+2, 2)
+@logKreaction(FeCl+2, "(( (1.0 / log(10)) * ((1.52 * log(10)) - (22500.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Cl-, 1.0, Fe+3)
+@species(FeCl2+, 1)
+@logKreaction(FeCl2+, "((2.22))", 2.0, Cl-, 1.0, Fe+3)
+@species(FeCl3, 0)
+@logKreaction(FeCl3, "((1.02))", 3.0, Cl-, 1.0, Fe+3)
+@species(FeCl4-, -1)
+@logKreaction(FeCl4-, "((-0.98))", 4.0, Cl-, 1.0, Fe+3)
+@species(FeS2O3+, 1)
+@logKreaction(FeS2O3+, "((3.9))", 1.0, Fe+3, 1.0, S2O3-2)
+@species(Fe[CO3]2-2, -2)
+@logKreaction(Fe[CO3]2-2, "(( (1.0 / log(10)) * ((7.04 * log(10)) - (58257.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, CO3-2, 1.0, Fe+2)
+@species(Fe[CO3]3-3, -3)
+@logKreaction(Fe[CO3]3-3, "((24.0))", 3.0, CO3-2, 1.0, Fe+3)
+@species(Fe[H3SiO4]+2, 2)
+@logKreaction(Fe[H3SiO4]+2, "((0.36))", 1.0, Fe+3, -1.0, H+, 1.0, H4[SiO4])
+@entity(S[-2], tot, 0)
+@logKreaction(S[-2], "(( (1.0 / log(10)) * ((33.69 * log(10)) - (-250280.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 9.0, H+, -4.0, H2O, 1.0, S, 8.0, e-)
+@species(HS-, -1)
+@logKreaction(HS-, 0, 1.0, S[-2])
+@species(Fe[HS]+, 1)
+@logKreaction(Fe[HS]+, "((4.34))", 1.0, Fe+2, 1.0, HS-)
+@species(Fe[HS]2, 0)
+@logKreaction(Fe[HS]2, "((6.45))", 1.0, Fe+2, 2.0, HS-)
+@species(Fe[OH]+, 1)
+@logKreaction(Fe[OH]+, "(( (1.0 / log(10)) * ((-9.25 * log(10)) - (40921.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Fe+2, -1.0, H+, 1.0, H2O)
+@species(Fe[OH]+2, 2)
+@logKreaction(Fe[OH]+2, "(( (1.0 / log(10)) * ((-2.15 * log(10)) - (38800.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Fe+3, -1.0, H+, 1.0, H2O)
+@species(Fe[OH]2, 0)
+@logKreaction(Fe[OH]2, "(( (1.0 / log(10)) * ((-20.84 * log(10)) - (114131.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Fe+2, -2.0, H+, 2.0, H2O)
+@species(Fe[OH]2+, 1)
+@logKreaction(Fe[OH]2+, "(( (1.0 / log(10)) * ((-4.8 * log(10)) - (71546.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Fe+3, -2.0, H+, 2.0, H2O)
+@species(Fe[OH]3, 0)
+@logKreaction(Fe[OH]3, "(( (1.0 / log(10)) * ((-12.56 * log(10)) - (103764.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Fe+3, -3.0, H+, 3.0, H2O)
+@species(Fe[OH]3-, -1)
+@logKreaction(Fe[OH]3-, "(( (1.0 / log(10)) * ((-33.84 * log(10)) - (162231.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Fe+2, -3.0, H+, 3.0, H2O)
+@species(Fe[OH]4-, -1)
+@logKreaction(Fe[OH]4-, "(( (1.0 / log(10)) * ((-21.6 * log(10)) - (133471.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Fe+3, -4.0, H+, 4.0, H2O)
+@species(Fe[OH]4-2, -2)
+@logKreaction(Fe[OH]4-2, "(( (1.0 / log(10)) * ((-46.32 * log(10)) - (160750.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Fe+2, -4.0, H+, 4.0, H2O)
+@species(Fe[OH]CO3, 0)
+@logKreaction(Fe[OH]CO3, "((10.7))", 1.0, CO3-2, 1.0, Fe+3, -1.0, H+, 1.0, H2O)
+@species(Fe[SO4], 0)
+@logKreaction(Fe[SO4], "(( (1.0 / log(10)) * ((2.44 * log(10)) - (8400.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Fe+2, 1.0, SO4-2)
+@species(Fe[SO4]+, 1)
+@logKreaction(Fe[SO4]+, "(( (1.0 / log(10)) * ((4.25 * log(10)) - (26000.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Fe+3, 1.0, SO4-2)
+@species(Fe[SO4]2-, -1)
+@logKreaction(Fe[SO4]2-, "((6.22))", 1.0, Fe+3, 2.0, SO4-2)
+@mineral(Ferrihydrite[am][s])
+@logKreaction(Ferrihydrite[am][s], "-1 * ((3.92))", 1.0, Fe+3, -3.0, H+, 3.0, H2O)
+@entity(H[+0], tot, 0)
+@logKreaction(H[+0], "(( (1.0 / log(10)) * ((-3.08 * log(10)) - (-4200.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, H, 2.0, e-)
+@species(H2, 0)
+@logKreaction(H2, 0, 1.0, H[+0])
+@gas(H2O[g])
+@logKreaction(H2O[g], "-1 * (( (1.0 / log(10)) * ((1.5 * log(10)) - (-44004.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, H2O)
+@species(H2S, 0)
+@logKreaction(H2S, "(( (1.0 / log(10)) * ((6.99 * log(10)) - (-22300.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, H+, 1.0, HS-)
+@entity(S[+3], tot, 0)
+@logKreaction(S[+3], "(( (1.0 / log(10)) * ((10.7 * log(10)) - (-78140.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 8.0, H+, -4.0, H2O, 2.0, S, 6.0, e-)
+@species(S2O4-2, -2)
+@logKreaction(S2O4-2, 0, 1.0, S[+3])
+@species(H2S2O4, 0)
+@logKreaction(H2S2O4, "(( (1.0 / log(10)) * ((2.8 * log(10)) - (20193.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, H+, 1.0, S2O4-2)
+@species(H2[S2O3], 0)
+@logKreaction(H2[S2O3], "(( (1.0 / log(10)) * ((2.32 * log(10)) - (22917.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, H+, 1.0, S2O3-2)
+@entity(S[+4], tot, 0)
+@logKreaction(S[+4], "(( (1.0 / log(10)) * ((-3.62 * log(10)) - (-7550.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, H+, -1.0, H2O, 1.0, S, 2.0, e-)
+@species(SO3-2, -2)
+@logKreaction(SO3-2, 0, 1.0, S[+4])
+@species(H2[SO3], 0)
+@logKreaction(H2[SO3], "(( (1.0 / log(10)) * ((9.03 * log(10)) - (21453.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, H+, 1.0, SO3-2)
+@species(H2[SiO4]-2, -2)
+@logKreaction(H2[SiO4]-2, "(( (1.0 / log(10)) * ((-23.14 * log(10)) - (75000.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -2.0, H+, 1.0, H4[SiO4])
+@species(H3[SiO4]-, -1)
+@logKreaction(H3[SiO4]-, "(( (1.0 / log(10)) * ((-9.84 * log(10)) - (29363.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -1.0, H+, 1.0, H4[SiO4])
+@species(HCO3-, -1)
+@logKreaction(HCO3-, "(( (1.0 / log(10)) * ((10.33 * log(10)) - (-14700.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, CO3-2, 1.0, H+)
+@species(HCl, 0)
+@logKreaction(HCl, "(( (1.0 / log(10)) * ((-0.71 * log(10)) - (-12298.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Cl-, 1.0, H+)
+@species(HS2O4-, -1)
+@logKreaction(HS2O4-, "(( (1.0 / log(10)) * ((2.5 * log(10)) - (3818.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, H+, 1.0, S2O4-2)
+@species(HSO5-, -1)
+@logKreaction(HSO5-, "(( (1.0 / log(10)) * ((-60.21 * log(10)) - (419540.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -1.0, H+, 1.0, H2O, 1.0, SO4-2, -2.0, e-)
+@species(H[S2O3]-, -1)
+@logKreaction(H[S2O3]-, "(( (1.0 / log(10)) * ((1.72 * log(10)) - (8253.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, H+, 1.0, S2O3-2)
+@species(H[SO3]-, -1)
+@logKreaction(H[SO3]-, "(( (1.0 / log(10)) * ((7.17 * log(10)) - (3668.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, H+, 1.0, SO3-2)
+@species(H[SO4]-, -1)
+@logKreaction(H[SO4]-, "(( (1.0 / log(10)) * ((1.98 * log(10)) - (22440.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, H+, 1.0, SO4-2)
+@mineral(Hydrotalcite-CO3[s])
+@logKreaction(Hydrotalcite-CO3[s], "-1 * (( (1.0 / log(10)) * ((50.86 * log(10)) - (-542756.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, Al+3, 1.0, CO3-2, -12.0, H+, 14.0, H2O, 4.0, Mg+2)
+@mineral(Hydrotalcite[s])
+@logKreaction(Hydrotalcite[s], "-1 * (( (1.0 / log(10)) * ((73.74 * log(10)) - (-584220.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, Al+3, -14.0, H+, 17.0, H2O, 4.0, Mg+2)
+@species(K+, 1)
+@logKreaction(K+, 0, 1.0, K)
+@species(KCl, 0)
+@logKreaction(KCl, "(( (1.0 / log(10)) * ((-0.5 * log(10)) - (4184.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Cl-, 1.0, K+)
+@species(K[OH], 0)
+@logKreaction(K[OH], "(( (1.0 / log(10)) * ((-14.46 * log(10)) - (66438.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -1.0, H+, 1.0, H2O, 1.0, K+)
+@species(K[SO4]-, -1)
+@logKreaction(K[SO4]-, "(( (1.0 / log(10)) * ((0.88 * log(10)) - (2949.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, K+, 1.0, SO4-2)
+@mineral(Magnetite[s])
+@logKreaction(Magnetite[s], "-1 * (( (1.0 / log(10)) * ((10.34 * log(10)) - (-217947.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Fe+2, 2.0, Fe+3, -8.0, H+, 4.0, H2O)
+@species(Mg4[OH]4+4, 4)
+@logKreaction(Mg4[OH]4+4, "(( (1.0 / log(10)) * ((-39.75 * log(10)) - (229186.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -4.0, H+, 4.0, H2O, 4.0, Mg+2)
+@species(MgCl+, 1)
+@logKreaction(MgCl+, "(( (1.0 / log(10)) * ((0.35 * log(10)) - (-1728.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Cl-, 1.0, Mg+2)
+@species(Mg[CO3], 0)
+@logKreaction(Mg[CO3], "(( (1.0 / log(10)) * ((2.98 * log(10)) - (8810.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, CO3-2, 1.0, Mg+2)
+@species(Mg[H3SiO4]+, 1)
+@logKreaction(Mg[H3SiO4]+, "(( (1.0 / log(10)) * ((-8.58 * log(10)) - (27114.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -1.0, H+, 1.0, H4[SiO4], 1.0, Mg+2)
+@species(Mg[HCO3]+, 1)
+@logKreaction(Mg[HCO3]+, "(( (1.0 / log(10)) * ((11.37 * log(10)) - (-12888.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, CO3-2, 1.0, H+, 1.0, Mg+2)
+@species(Mg[OH]+, 1)
+@logKreaction(Mg[OH]+, "(( (1.0 / log(10)) * ((-11.68 * log(10)) - (62834.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -1.0, H+, 1.0, H2O, 1.0, Mg+2)
+@species(Mg[S2O3], 0)
+@logKreaction(Mg[S2O3], "((1.82))", 1.0, Mg+2, 1.0, S2O3-2)
+@species(Mg[SO4], 0)
+@logKreaction(Mg[SO4], "(( (1.0 / log(10)) * ((2.23 * log(10)) - (5858.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Mg+2, 1.0, SO4-2)
+@mineral(Monosulfate-Fe[s])
+@logKreaction(Monosulfate-Fe[s], "-1 * (( (1.0 / log(10)) * ((66.05 * log(10)) - (-479966.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 4.0, Ca+2, 2.0, Fe+3, -12.0, H+, 18.0, H2O, 1.0, SO4-2)
+@species(Na+, 1)
+@logKreaction(Na+, 0, 1.0, Na)
+@species(NaAl[OH]4, 0)
+@logKreaction(NaAl[OH]4, "(( (1.0 / log(10)) * ((-23.63 * log(10)) - (190348.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Al+3, -4.0, H+, 4.0, H2O, 1.0, Na+)
+@species(NaCl, 0)
+@logKreaction(NaCl, "(( (1.0 / log(10)) * ((-0.5 * log(10)) - (2000.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Cl-, 1.0, Na+)
+@species(Na[CO3]-, -1)
+@logKreaction(Na[CO3]-, "(( (1.0 / log(10)) * ((1.27 * log(10)) - (37279.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, CO3-2, 1.0, Na+)
+@species(Na[HCO3], 0)
+@logKreaction(Na[HCO3], "(( (1.0 / log(10)) * ((10.08 * log(10)) - (-26127.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, CO3-2, 1.0, H+, 1.0, Na+)
+@species(Na[OH], 0)
+@logKreaction(Na[OH], "(( (1.0 / log(10)) * ((-14.75 * log(10)) - (53395.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -1.0, H+, 1.0, H2O, 1.0, Na+)
+@species(Na[S2O3]-, -1)
+@logKreaction(Na[S2O3]-, "(( (1.0 / log(10)) * ((0.61 * log(10)) - (4656.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Na+, 1.0, S2O3-2)
+@species(Na[SO4]-, -1)
+@logKreaction(Na[SO4]-, "(( (1.0 / log(10)) * ((0.94 * log(10)) - (-2810.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Na+, 1.0, SO4-2)
+@species(O2, 0)
+@logKreaction(O2, "-2.0* (-1 * (( (1.0 / log(10)) * ((-41.5 * log(10)) - (235759.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) )))", -4.0, H+, 2.0, H2O[g], -4.0, e-)
+@species(OH-, -1)
+@logKreaction(OH-, "(( (1.0 / log(10)) * ((-14.0 * log(10)) - (55815.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -1.0, H+, 1.0, H2O)
+@entity(O[+0], tot, 0)
+@logKreaction(O[+0], "(( (1.0 / log(10)) * ((-85.99 * log(10)) - (559526.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -4.0, H+, 2.0, O, -4.0, e-)
+@mineral(Portlandite[s])
+@logKreaction(Portlandite[s], "-1 * (( (1.0 / log(10)) * ((22.81 * log(10)) - (-130107.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Ca+2, -2.0, H+, 2.0, H2O)
+@mineral(Pyrite[s])
+@logKreaction(Pyrite[s], "-1 * (( (1.0 / log(10)) * ((-16.82 * log(10)) - (50735.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Fe+2, -2.0, H+, 2.0, HS-, -2.0, e-)
+@mineral(Pyrrhotite[s])
+@logKreaction(Pyrrhotite[s], "-1 * (( (1.0 / log(10)) * ((-5.32 * log(10)) - (673.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 0.87, Fe+2, -1.0, H+, 1.0, HS-, -0.26, e-)
+@species(S-2, -2)
+@logKreaction(S-2, "(( (1.0 / log(10)) * ((-17.1 * log(10)) - (73278.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -1.0, H+, 1.0, HS-)
+@species(S2-2, -2)
+@logKreaction(S2-2, "(( (1.0 / log(10)) * ((-10.54 * log(10)) - (67640.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -2.0, H+, 2.0, HS-, -2.0, e-)
+@species(S2O5-2, -2)
+@logKreaction(S2O5-2, "(( (1.0 / log(10)) * ((12.85 * log(10)) - (2606.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, H+, -1.0, H2O, 2.0, SO3-2)
+@species(S2O8-2, -2)
+@logKreaction(S2O8-2, "(( (1.0 / log(10)) * ((-65.38 * log(10)) - (473980.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, SO4-2, -2.0, e-)
+@species(S3-2, -2)
+@logKreaction(S3-2, "(( (1.0 / log(10)) * ((-6.51 * log(10)) - (74840.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -3.0, H+, 3.0, HS-, -4.0, e-)
+@species(S3O6-2, -2)
+@logKreaction(S3O6-2, "(( (1.0 / log(10)) * ((36.82 * log(10)) - (-131646.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 6.0, H+, -3.0, H2O, 3.0, SO3-2, 2.0, e-)
+@species(S4-2, -2)
+@logKreaction(S4-2, "(( (1.0 / log(10)) * ((-3.58 * log(10)) - (88210.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -4.0, H+, 4.0, HS-, -6.0, e-)
+@species(S4O6-2, -2)
+@logKreaction(S4O6-2, "(( (1.0 / log(10)) * ((90.8 * log(10)) - (-414978.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 12.0, H+, -6.0, H2O, 4.0, SO3-2, 6.0, e-)
+@species(S5-2, -2)
+@logKreaction(S5-2, "(( (1.0 / log(10)) * ((-0.87 * log(10)) - (102840.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -5.0, H+, 5.0, HS-, -8.0, e-)
+@species(S5O6-2, -2)
+@logKreaction(S5O6-2, "(( (1.0 / log(10)) * ((115.39 * log(10)) - (-592874.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 18.0, H+, -9.0, H2O, 5.0, SO3-2, 10.0, e-)
+@species(SO2, 0)
+@logKreaction(SO2, "(( (1.0 / log(10)) * ((9.03 * log(10)) - (21450.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, H+, -1.0, H2O, 1.0, SO3-2)
+@mineral(Saponite-FeCa[s])
+@logKreaction(Saponite-FeCa[s], "-1 * (( (1.0 / log(10)) * ((24.48 * log(10)) - (-259470.00000000003 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 0.34, Al+3, 0.17, Ca+2, 1.0, Fe+2, -7.36, H+, -2.64, H2O, 3.66, H4[SiO4], 2.0, Mg+2)
+@species(Si2O2[OH]5-, -1)
+@logKreaction(Si2O2[OH]5-, "((-8.5))", -1.0, H+, -1.0, H2O, 2.0, H4[SiO4])
+@species(Si2O3[OH]4-2, -2)
+@logKreaction(Si2O3[OH]4-2, "((-19.4))", -2.0, H+, -1.0, H2O, 2.0, H4[SiO4])
+@species(Si3O5[OH]5-3, -3)
+@logKreaction(Si3O5[OH]5-3, "((-29.4))", -3.0, H+, -2.0, H2O, 3.0, H4[SiO4])
+@species(Si3O6[OH]3-3, -3)
+@logKreaction(Si3O6[OH]3-3, "((-29.3))", -3.0, H+, -3.0, H2O, 3.0, H4[SiO4])
+@species(Si4O6[OH]6-2, -2)
+@logKreaction(Si4O6[OH]6-2, "((-15.6))", -2.0, H+, -4.0, H2O, 4.0, H4[SiO4])
+@species(Si4O7[OH]6-4, -4)
+@logKreaction(Si4O7[OH]6-4, "((-39.1))", -4.0, H+, -3.0, H2O, 4.0, H4[SiO4])
+@species(Si4O8[OH]4-4, -4)
+@logKreaction(Si4O8[OH]4-4, "((-39.2))", -4.0, H+, -4.0, H2O, 4.0, H4[SiO4])
+@species(Si6O15-6, -6)
+@logKreaction(Si6O15-6, "((-61.8))", -6.0, H+, -9.0, H2O, 6.0, H4[SiO4])
+@mineral(SiO2[am][s])
+@logKreaction(SiO2[am][s], "-1 * (( (1.0 / log(10)) * ((-2.71 * log(10)) - (13522.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -2.0, H2O, 1.0, H4[SiO4])
+@mineral(Siderite[s])
+@logKreaction(Siderite[s], "-1 * (( (1.0 / log(10)) * ((-10.68 * log(10)) - (-12916.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, CO3-2, 1.0, Fe+2)
+@species(SrCl+, 1)
+@logKreaction(SrCl+, "(( (1.0 / log(10)) * ((0.23 * log(10)) - (4926.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Cl-, 1.0, Sr+2)
+@species(Sr[CO3], 0)
+@logKreaction(Sr[CO3], "(( (1.0 / log(10)) * ((2.81 * log(10)) - (21796.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, CO3-2, 1.0, Sr+2)
+@species(Sr[HCO3]+, 1)
+@logKreaction(Sr[HCO3]+, "(( (1.0 / log(10)) * ((11.51 * log(10)) - (10597.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, CO3-2, 1.0, H+, 1.0, Sr+2)
+@species(Sr[OH]+, 1)
+@logKreaction(Sr[OH]+, "(( (1.0 / log(10)) * ((-13.29 * log(10)) - (82608.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", -1.0, H+, 1.0, H2O, 1.0, Sr+2)
+@species(Sr[S2O3], 0)
+@logKreaction(Sr[S2O3], "((2.04))", 1.0, S2O3-2, 1.0, Sr+2)
+@species(Sr[SO4], 0)
+@logKreaction(Sr[SO4], "(( (1.0 / log(10)) * ((2.3 * log(10)) - (7029.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, SO4-2, 1.0, Sr+2)
+@mineral(Stratlingite[s])
+@logKreaction(Stratlingite[s], "-1 * (( (1.0 / log(10)) * ((49.66 * log(10)) - (-397949.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, Al+3, 2.0, Ca+2, -10.0, H+, 11.0, H2O, 1.0, H4[SiO4])
+//********* Extra text 3 **************
+@class: extra_text_3(){
+}
+@extra_text_3()
+//********* End of extra text 3 *******
+
+//********* Extra text 4 **************
+@class: extra_text_4(){
+}
+@extra_text_4()
+//********* End of extra text 4 *******
+
+//********* End of Adsorption Models *******
+//********* Extra text 5 **************
+@class: extra_text_5(){
+ // Space for extra code that will be used in the calculations but will not be changed by the GUI. 
+}
+@extra_text_5()
+//********* End of extra text 5 *******
+
+//@Write_SI_minerals:
+//@PHREEQC_Output:

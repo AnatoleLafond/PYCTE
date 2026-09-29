@@ -8,6 +8,10 @@ import os
 from charset_normalizer import from_path
 import glob
 import json
+try:
+    from . import warningManager
+except ImportError:
+    import warningManager
 
 def writeTime(tps, arr=2):
     if tps >= 3600 * 24:
@@ -21,20 +25,6 @@ def writeTime(tps, arr=2):
     else:
         return f"{tps:.{arr}f} sec"
 
-
-
-def readInputFile(txtPath, coord,  inputHeaders = None) :
-    dataframe = pd.read_csv(txtPath,sep=r"\s+",comment="%",dtype=float)
-    if len(dataframe.columns) != len(coord + inputHeaders):
-        print(f"input file : {len(dataframe.columns)} columns")
-        print(f"coupled variables : {len(coord + inputHeaders)}")
-        print(coord +inputHeaders)
-        sys.exit()
-    if (coord + inputHeaders) != dataframe.columns.tolist():
-        dataframe = pd.read_csv(txtPath,sep=r"\s+",comment="%",dtype=float,names=coord + inputHeaders)
-    return dataframe
-    
-# Decompose secundary species into primary species (e.g. Na2S2O3 into 2Na, 2S and 3O)
 def decomposingIntoPrimSpecies(formula, primarySpecies,redoxPrim,redox_dict):
     def multiply_dict(d, factor): 
         return {k: v * factor for k, v in d.items()}
@@ -123,6 +113,11 @@ def decomposingIntoPrimSpecies(formula, primarySpecies,redoxPrim,redox_dict):
     return current, charge
 
 
+def _strip_comment(line):
+    """Retire les commentaires de fin de ligne (#...) et les espaces."""
+    return line.split("#", 1)[0].strip()
+
+
 def extract_master_redox_map(filepath, redox_dict):
     """
     Lit SOLUTION_MASTER_SPECIES et retourne un mapping:
@@ -133,18 +128,20 @@ def extract_master_redox_map(filepath, redox_dict):
 
     with open(filepath, "r", encoding="utf-8") as f:
         for line in f:
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
+            stripped = _strip_comment(line)
+            if not stripped:
                 continue
             upper = stripped.upper()
+            first_token = upper.split()[0]
 
-            if "SOLUTION_MASTER_SPECIES" in upper:
+            if first_token == "SOLUTION_MASTER_SPECIES":
                 in_block = True
                 continue
-            if in_block and any(kw in upper for kw in (
-                "SOLUTION_SPECIES", "PHASES", "SURFACE", "EXCHANGE",
-                "REACTION", "KINETICS", "RATES", "END"
-            )):
+            if in_block and (
+                first_token in ("SOLUTION_SPECIES", "PHASES", "REACTION",
+                                "KINETICS", "RATES", "END", "SIT")
+                or first_token.startswith(("SURFACE", "EXCHANGE"))
+            ):
                 break
 
             if not in_block:
@@ -212,13 +209,13 @@ def extract_secondary_species(filepath, redox_dict, redox_map):
     
     with open(filepath, "r", encoding=result.encoding) as f:
         for line in f:
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
+            stripped = _strip_comment(line)
+            if not stripped:
                 continue
             upper = stripped.upper()
             first_token = upper.split()[0]
 
-            if any(kw in upper for kw in species_block_keywords):
+            if first_token in species_block_keywords:
                 block_type = "species"
                 current_phase_name = None
                 continue
@@ -228,7 +225,7 @@ def extract_secondary_species(filepath, redox_dict, redox_map):
                 current_phase_name = None
                 continue
 
-            if block_type is not None and any(kw in upper for kw in closing_only_keywords):
+            if block_type is not None and first_token in closing_only_keywords:
                 block_type = None
                 current_phase_name = None
                 continue
@@ -243,6 +240,8 @@ def extract_secondary_species(filepath, redox_dict, redox_map):
                     continue
 
                 lhs, rhs = stripped.split("=", 1)
+                if not rhs.strip():
+                    continue
                 rhs_species = rhs.strip().split()[0]
 
                 for state, master in redox_map.items():
@@ -320,6 +319,7 @@ def extract_master_species(filepath, encoding="utf-8"):
         'SURFACE_MASTER_SPECIES': [],
         'EXCHANGE_SPECIES': [],
         'EXCHANGE_MASTER_SPECIES': [],
+        'EXCHANGE_MASTER_ELEMENT': [],
         'PHASES': [],
         'SURFACE_SPECIES': [],
     }
@@ -337,8 +337,8 @@ def extract_master_species(filepath, encoding="utf-8"):
     current_block = None
     with open(filepath, "r", encoding=encoding) as f:
         for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
+            line = _strip_comment(line)
+            if not line:
                 continue
             upper_line = line.upper()
             if upper_line in masterSpecies:
@@ -356,13 +356,17 @@ def extract_master_species(filepath, encoding="utf-8"):
                 parts = line.split()
                 if parts:
                     masterSpecies['SURFACE_MASTER_SPECIES'].append(parts[0])
+            elif current_block == 'EXCHANGE_MASTER_SPECIES':
+                parts = line.split()
+                if len(parts) >= 2:
+                    masterSpecies['EXCHANGE_MASTER_ELEMENT'].append(parts[1])
 
     current_block = None
     pending_phase_name = None
     with open(filepath, "r", encoding=encoding) as f:
         for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
+            line = _strip_comment(line)
+            if not line:
                 continue
             upper_line = line.upper()
             if upper_line in masterSpecies:
@@ -383,7 +387,7 @@ def extract_master_species(filepath, encoding="utf-8"):
                     pending_phase_name = line.split()[0]
 
             elif current_block in ('SOLUTION_MASTER_SPECIES', 'SURFACE_MASTER_SPECIES'):
-                continue  # déjà traité au passage 1
+                continue
 
             elif current_block:
                 if line.lower().startswith("log_k"):
@@ -409,7 +413,127 @@ def extract_master_species(filepath, encoding="utf-8"):
     return masterSpecies
 
 
+_PHREEQC_KEYWORDS = {
+    "SOLUTION_MASTER_SPECIES", "SOLUTION_SPECIES", "PHASES",
+    "EXCHANGE_MASTER_SPECIES", "EXCHANGE_SPECIES",
+    "SURFACE_MASTER_SPECIES", "SURFACE_SPECIES",
+    "RATES", "END", "SIT", "PITZER", "LLNL_AQUEOUS_MODEL_PARAMETERS",
+    "GAS_BINARY_PARAMETERS", "MEAN_GAMMAS", "NAMED_EXPRESSIONS",
+    "CALCULATE_VALUES", "ISOTOPES", "ISOTOPE_RATIOS", "ISOTOPE_ALPHAS",
+    "SOLID_SOLUTIONS", "EQUILIBRIUM_PHASES", "KINETICS", "REACTION",
+    "SOLUTION", "EXCHANGE", "SURFACE", "GAS_PHASE", "KNOBS", "USE",
+    "SAVE", "SELECTED_OUTPUT", "USER_PUNCH", "USER_PRINT", "USER_GRAPH",
+    "PRINT", "TITLE", "DATABASE", "INCLUDE$", "COPY", "DELETE", "DUMP", "MIX",
+}
+_PHASE_PARAMS = {
+    "log_k", "logk", "delta_h", "deltah", "analytic", "analytical_expression",
+    "a_e", "vm", "add_logk", "add_constant", "t_c", "p_c", "omega",
+}
+
+
+def _parse_reaction_side(side):
+    """
+    Parse memebers of PHREEQC reaction in (coefficient, species).
+    'FeS2 + 2 H+ + 2 e-'               -> [(1.0,'FeS2'), (2.0,'H+'), (2.0,'e-')]
+    'Mg+2 - 2 H+ + 2 H2O'              -> [(1.0,'Mg+2'), (-2.0,'H+'), (2.0,'H2O')]      (ThermoChimie)
+    '+1.000Ca+2 +1.000CO3-2 -2.000H+'  -> [(1.0,'Ca+2'), (1.0,'CO3-2'), (-2.0,'H+')]    
+    '+ 1.0000 Ca++ + 2HCO3-'           -> [(1.0,'Ca++'), (2.0,'HCO3-')]                 (llnl)
+    """
+    terms = []
+    sign, coef = 1.0, None
+    for tok in side.split():
+        m = re.fullmatch(r'([+-]?)(\d+\.?\d*|\.\d+)?(.*)', tok)
+        s, num, sp = m.groups()
+        if not sp:
+            if s == '-':
+                sign = -sign
+            if num:
+                try:
+                    coef = float(tok.lstrip('+-'))
+                except ValueError:
+                    coef = float(num)
+            continue
+        c = float(num) if num else 1.0
+        if coef is not None:
+            c *= coef
+        if s == '-':
+            c = -c
+        terms.append((sign * c, sp))
+        sign, coef = 1.0, None
+    return terms
+
+
+def extract_phase_reactions(filepath):
+
+    result = from_path(filepath).best()
+    encoding = result.encoding if result else "utf-8"
+
+    reactions = {}
+    in_phases = False
+    name = None
+    with open(filepath, "r", encoding=encoding) as f:
+        for line in f:
+            stripped = _strip_comment(line)
+            if not stripped:
+                continue
+            first = stripped.split()[0]
+            upper_first = first.upper()
+
+            if upper_first == "PHASES":
+                in_phases, name = True, None
+                continue
+            if in_phases and (upper_first in _PHREEQC_KEYWORDS
+                              or upper_first.endswith(("_MODIFY", "_RAW"))):
+                in_phases, name = False, None
+                continue
+            if not in_phases:
+                continue
+
+            if first.startswith("-") or first.lower() in _PHASE_PARAMS:
+                continue
+            if "=" in stripped:
+                if name is not None:
+                    lhs, rhs = stripped.split("=", 1)
+                    reactions[name] = (_parse_reaction_side(lhs), _parse_reaction_side(rhs))
+                    name = None
+                continue
+            name = first
+
+    return reactions
+
+
+def decomposingPhaseIntoPrimSpecies(reaction, primarySpecies, redoxPrim, redox_dict, inverse_redox):
+
+    lhs, rhs = reaction
+    total = {}
+    for sign, terms in ((1, rhs), (-1, lhs[1:])):
+        for coef, sp in terms:
+            composition, _ = decomposingIntoPrimSpecies(sp, primarySpecies, redoxPrim, redox_dict)
+            if sp in inverse_redox:
+                redox_name = inverse_redox[sp]
+                element = redox_name.split('(')[0]
+                if element not in ('H', 'O') and element in composition and redox_name not in composition:
+                    composition[redox_name] = composition.pop(element)
+            for prim, n in composition.items():
+                total[prim] = total.get(prim, 0) + sign * coef * n
+
+    return {prim: (int(round(n)) if abs(n - round(n)) < 1e-9 else round(n, 10))
+            for prim, n in total.items() if abs(n) > 1e-9}
+
+
+def _protonate_exchange_master(master):
+
+    m = re.fullmatch(r'(.+?)(-+|-\d+)', master)
+    if not m:
+        return master
+    base, charge = m.groups()
+    n = int(charge[1:]) if charge[1:].isdigit() else len(charge)
+    return base + 'H' + (str(n) if n > 1 else '')
+
+
 def phreeqcDBextraction(centralDict, commMtrx):
+
+    phasesAsPrimary = centralDict.get('phasesAsPrimary', True)
     
     totPrimSpecies = extract_master_species(centralDict['chemPath'])
 
@@ -417,12 +541,19 @@ def phreeqcDBextraction(centralDict, commMtrx):
     s for s in totPrimSpecies['SURFACE_SPECIES']
     if s not in totPrimSpecies['SOLUTION_MASTER_ELEMENT']
 ]
+
+    totPrimSpecies['EXCHANGE_MASTER_ELEMENT'] = [_protonate_exchange_master(s) for s in totPrimSpecies['EXCHANGE_MASTER_ELEMENT']]
+    
+    phaseNames = list(totPrimSpecies['PHASES'])
+    if not phasesAsPrimary:
+        totPrimSpecies['PHASES'] = []
+    
     
     redox_dict = group_redox_states((totPrimSpecies['SOLUTION_MASTER_SPECIES']))
     redox_map = extract_master_redox_map(centralDict['chemPath'], redox_dict)
 
     
-    rmv = ['H','H+','H(0)','H(+1)','O(0)','O','O(-2)'] # phreeqc limitations ..
+    rmv = ['H','H+','H(0)','H(+1)','O(0)','O','O(-2)']
     for cle in rmv:
         redox_map.pop(cle, None) 
     if 'H' in redox_dict:
@@ -447,18 +578,40 @@ def phreeqcDBextraction(centralDict, commMtrx):
                 print(conc,comp)
                 sys.exit()
             composition, _ = decomposingIntoPrimSpecies(comp, (totPrimSpecies['SOLUTION_MASTER_SPECIES']+
-            totPrimSpecies['SURFACE_MASTER_SPECIES']+totPrimSpecies['EXCHANGE_SPECIES']+totPrimSpecies['PHASES']), secondary, redox_dict)
+            totPrimSpecies['SURFACE_MASTER_SPECIES']+totPrimSpecies['EXCHANGE_SPECIES']+ totPrimSpecies['EXCHANGE_MASTER_SPECIES']+totPrimSpecies['EXCHANGE_MASTER_ELEMENT']+totPrimSpecies['PHASES']), secondary, redox_dict)
             primToSecSpecies.update({comp : composition})
+
+    for exMaster in totPrimSpecies['EXCHANGE_MASTER_ELEMENT']:
+        primToSecSpecies[exMaster] = {exMaster: 1}
     
 
     inverse_redox = {species: element for element, species in redox_map.items()}
     for species, composition in primToSecSpecies.items():
         if species in inverse_redox:
-            redox_name = inverse_redox[species]      # ex. "N(+3)"
-            element = redox_name.split('(')[0]       # ex. "N"
+            redox_name = inverse_redox[species]
+            element = redox_name.split('(')[0]
     
             if element in composition and redox_name not in composition:
                 composition[redox_name] = composition.pop(element)
+
+    masterOf = dict(zip(totPrimSpecies['SOLUTION_MASTER_SPECIES'], totPrimSpecies['SOLUTION_MASTER_ELEMENT']))
+    for comp in primToSecSpecies:
+        if comp in redox_dict:
+            primary = next((s for s in redox_dict[comp] if masterOf.get(s) == masterOf.get(comp)), None)
+            if primary:
+                primToSecSpecies[comp] = {primary: 1}
+
+    if not phasesAsPrimary:
+        phaseReactions = extract_phase_reactions(centralDict['chemPath'])
+        primList = (totPrimSpecies['SOLUTION_MASTER_SPECIES']+totPrimSpecies['SURFACE_MASTER_SPECIES']
+                    +totPrimSpecies['EXCHANGE_SPECIES']+totPrimSpecies['PHASES'])
+        missing = [comp for comp in primToSecSpecies if comp in phaseNames and comp not in phaseReactions]
+        if missing:
+            raise ValueError(f"Dissolution reaction not found in PHASES for : {missing}")
+        for comp in primToSecSpecies:
+            if comp in phaseReactions:
+                primToSecSpecies[comp] = decomposingPhaseIntoPrimSpecies(
+                    phaseReactions[comp], primList, secondary, redox_dict, inverse_redox)
     
                    
     solutionMaster = [s for s in totPrimSpecies['SOLUTION_MASTER_SPECIES']
@@ -473,8 +626,7 @@ def phreeqcDBextraction(centralDict, commMtrx):
         if not any(t.startswith(s + "(") for t in totPrimSpecies['EXCHANGE_SPECIES'])]
     phaseMaster = [s for s in totPrimSpecies['PHASES']
     if not any(t.startswith(s + "(") for t in totPrimSpecies['PHASES'])]
-
-
+    
     for sp, primDic in primToSecSpecies.items():
         for prim in primDic:
             if prim in surfaceMaster and prim not in surf:
@@ -484,10 +636,16 @@ def phreeqcDBextraction(centralDict, commMtrx):
             elif prim in phaseMaster and prim not in phases:
                 phases += [prim]
             elif prim in exchangeMaster and prim not in exch:
+
                 exch += [prim]
 
-    fixed = totPrimSpecies['SURFACE_MASTER_SPECIES']+totPrimSpecies['SURFACE_SPECIES']+totPrimSpecies['EXCHANGE_MASTER_SPECIES']+totPrimSpecies['EXCHANGE_SPECIES']+totPrimSpecies['PHASES']
-    trspt = [s for s in centralDict['systemSpeciation'] if s not in fixed]
+    for exMaster in totPrimSpecies['EXCHANGE_MASTER_ELEMENT']:
+        if exMaster not in exch:
+            exch += [exMaster]
+
+
+    fixed = totPrimSpecies['SURFACE_MASTER_SPECIES']+totPrimSpecies['SURFACE_SPECIES']+totPrimSpecies['EXCHANGE_MASTER_SPECIES']+totPrimSpecies['EXCHANGE_SPECIES']+phaseNames
+    trspt = [s for s in centralDict['systemSpecies'] if s not in fixed]
 
     if centralDict['nonTrivialDecomposition']:
         for ky in primToSecSpecies:
@@ -497,7 +655,7 @@ def phreeqcDBextraction(centralDict, commMtrx):
 
     
     primToSecSpecies['H2O'] = {'H2O':1}
-
+    
     return primToSecSpecies, sol, phases, surf, exch, fixed, trspt
     
     
@@ -512,13 +670,13 @@ def gemsDBextraction(centralDict):
 
     file_list = re.findall(r'["\']([^"\']+)["\']', task_content)
     if not file_list:
-        raise FileNotFoundError(f"Aucun nom de fichier trouvé dans {taskPath}")
+        raise FileNotFoundError(f"No file found in: {taskPath}")
 
     dch_candidates = [fn for fn in file_list if 'dch' in fn.lower()]
     dch_filename = dch_candidates[0] if dch_candidates else file_list[0]
 
     if not os.path.isfile(dch_filename):
-        raise FileNotFoundError(f"Fichier dch introuvable : {os.path.join(folder, dch_filename)}")
+        raise FileNotFoundError(f"Cannot find 'dch' file: {os.path.join(folder, dch_filename)}")
 
     with open(dch_filename, 'r', encoding='utf-8', errors='ignore') as f:
         content = f.read()
@@ -528,11 +686,11 @@ def gemsDBextraction(centralDict):
     elif dch_filename.lower().endswith('.dat'):
         icnl_list, dcnl_list, ccdc_list, A_matrix = _parse_dch_dat(content)
     else:
-        raise ValueError(f"Extension de fichier dch non gérée : {dch_filename}")
+        raise ValueError(f"I can only parse '.json' and '.dat' files, and not '{dch_filename}' extension, sorry. Please convert.")
 
-    assert len(dcnl_list) == len(A_matrix), "Nb DC != Nb lignes de A"
-    assert all(len(row) == len(icnl_list) for row in A_matrix), "Nb IC != Nb colonnes de A"
-    assert len(dcnl_list) == len(ccdc_list), "Nb DC != Nb codes ccDC"
+    assert len(dcnl_list) == len(A_matrix), "Problem in stoechiometry matrix ? Number of DC not equal to the number of lines in matrix A."
+    assert all(len(row) == len(icnl_list) for row in A_matrix), "Problem in stoechiometry matrix ? Number of IC not equal to the number of columns in matrix A."
+    assert len(dcnl_list) == len(ccdc_list), "Number of DC not equal to number of ccDC."
 
     stoichio_dict = {}
     for dc_name, row in zip(dcnl_list, A_matrix):
@@ -562,7 +720,6 @@ def gemsDBextraction(centralDict):
 
 
 def _parse_dch_dat(content):
-    """Parsing du format texte GEMS (<ICNL> ... <tag suivant>)."""
     def extract_list(tag):
         pattern = re.compile(r'<' + re.escape(tag) + r'>(.*?)<[^>]+>', re.DOTALL)
         m = pattern.search(content)
@@ -594,7 +751,7 @@ def _parse_dch_json(content):
     data = json.loads(content)
     if isinstance(data, list):
         data = data[0]
-    dch = data.get('dch', data)  # au cas où la clé "dch" n'existerait pas
+    dch = data.get('dch', data)
 
     icnl_list = dch['ICNL']
     dcnl_list = dch['DCNL']
@@ -602,7 +759,7 @@ def _parse_dch_json(content):
 
     nIC = dch['nIC']
     nDC = dch['nDC']
-    A_flat = dch['A']  # nDC * nIC
+    A_flat = dch['A']
     A_matrix = [
         [float(A_flat[i * nIC + j]) for j in range(nIC)]
         for i in range(nDC)
@@ -611,56 +768,20 @@ def _parse_dch_json(content):
 
 def OrchestraDBextraction(centralDict):
     print("Extracting ORCHESTRA database", end=" ", flush=True)
-    
-    
+
     from . import parse_reactions 
 
-    # reactions = parse_reactions.build_reaction_dict(centralDict['chemPath'])
-    
-    # primary_entities = parse_reactions.build_primary_entities(centralDict['chemPath'])
-    
-    # stoich = parse_reactions.resolve_reactions_to_primary(reactions, primary_entities)
-    
     reactions  = parse_reactions.build_reaction_dict(centralDict['chemPath'])
     components = parse_reactions.build_components(centralDict['chemPath'])
     stoich     = parse_reactions.build_stoich_matrix(
-                     reactions, components, centralDict['systemSpeciation'],
+                     reactions, components, centralDict['systemSpecies'],
                      filepath=centralDict['chemPath'])
 
     stoichReduced = parse_reactions.align_stoich(
     stoich,
-    centralDict['systemSpeciation'],      # lignes (déjà bonnes, mais on fige l'ordre)
+    centralDict['systemSpecies'],
     centralDict['primarySpecies'][-1]) 
-        
-        
-    # reactions  = parse_reactions.build_reaction_dict(centralDict['chemPath'])
-    # components = parse_reactions.build_components(centralDict['chemPath'])       # ← au lieu de build_primary_entities
-    # stoich     = parse_reactions.build_stoich_matrix(reactions, components, centralDict['commMtrx'].columns)
-    
-    # print(reactions)
-    # print(primary_entities)
 
-    # sys.exit()
-    
-    # primToSecSpecies = {}
-    # for _, row in centralDict['commMtrx'][centralDict['systemSpeciation']].iterrows():
-    #     for comp, conc in row.items():
-    #         if isinstance(conc, str):
-    #             print("\nTypeError: '<' not supported between instances of 'str' and 'int'")
-    #             print(conc,comp)
-    #             sys.exit()
-    #         composition, _ = decomposingIntoPrimSpecies(comp, centralDict['primarySpecies'][-1], None,None)
-    #         primToSecSpecies.update({comp : composition})
-
-
-    # if centralDict['nonTrivialDecomposition']:
-    #     for ky in primToSecSpecies:
-    #         for subky in centralDict['nonTrivialDecomposition']:
-    #             if subky == ky:
-    #                   primToSecSpecies[ky] = centralDict['nonTrivialDecomposition'][ky]
-
-    #print(primToSecSpecies)
-    #sys.exit()
     centralDict.update({
         "stoichReduced" : stoichReduced,
         'reactions': reactions,
@@ -669,20 +790,38 @@ def OrchestraDBextraction(centralDict):
     return centralDict
 
 
+def checkDecomposition(centralDict):
+
+    known = (set(centralDict['primarySpecies']['total'])
+             | set(centralDict['primarySpecies']['primarySpeciesPhantom']))
+
+    orphans = {sp: [p for p in comp if p not in known]
+               for sp, comp in centralDict['primToSecSpecies'].items()
+               if any(p not in known for p in comp)}
+
+    if orphans:
+        raise ValueError(
+            "Secondary species cannot be broken down in primary species :\n"
+            + "\n".join(f"  {sp} -> {k}" for sp, k in orphans.items())
+            + f"\nPlease check your secondary species in {centralDict['chemPath']}."
+        )
+
+    return centralDict
+
+
 def extract(centralDict):
     startExtract = time.time()
     
-    # calling db functions shall be generic ...
     if centralDict['PIDextract'] > 1 and centralDict['couplingInfo'][1] == 'PhreeqC':
         print("Extracting PhreeqC database", end=" ", flush=True)
         chunk_size = int(np.ceil(len(centralDict['commMtrx']) / centralDict['PIDextract']))
 
-        commMtrxSplit = [centralDict['commMtrx'][centralDict['systemSpeciation']].iloc[i:i + chunk_size] for i in range(0, len(centralDict['commMtrx']), chunk_size)]
+        commMtrxSplit = [centralDict['commMtrx'][centralDict['systemSpecies']].iloc[i:i + chunk_size] for i in range(0, len(centralDict['commMtrx']), chunk_size)]
     
         with concurrent.futures.ProcessPoolExecutor(max_workers=centralDict['PIDnbr']) as executor:
             futures = []
             for i,chunk in enumerate(commMtrxSplit):
-                futures.append(executor.submit(phreeqcDBextraction, centralDict, chunk ))
+                futures.append(warningManager.submit(executor, phreeqcDBextraction, centralDict, chunk ))
                 
                 
         results = []
@@ -701,7 +840,7 @@ def extract(centralDict):
 
     elif centralDict['couplingInfo'][1] == 'PhreeqC':
         print("Extracting PhreeqC database", end=" ", flush=True)
-        primToSecSpecies, sol, phases, surf, exch, fixed, trspt = phreeqcDBextraction(centralDict,centralDict['commMtrx'][centralDict['systemSpeciation']])
+        primToSecSpecies, sol, phases, surf, exch, fixed, trspt = phreeqcDBextraction(centralDict,centralDict['commMtrx'][centralDict['systemSpecies']])
 
     elif centralDict['couplingInfo'][1] == 'ORCHESTRA':
         centralDict.update(OrchestraDBextraction(centralDict))
@@ -714,21 +853,21 @@ def extract(centralDict):
 
         
         centralDict.update({
-                            "primToSecSpecies" : primToSecSpecies ,
+                            "primToSecSpecies" : primToSecSpecies,
                             "transportedSpecies" : trspt, 
                             "primarySpecies" : {
                             'solution' : list(set(sol+['H2O'])),
                             'phases' : phases,
-                            'surface': surf , 
+                            'surface': surf, 
                             'exchange': exch, 
                             'total' :(list(set(sol+['H2O']))+exch+surf+phases),
                             'primarySpeciesPhantom' : ['pH','ph','pe'],
                             }})    
+
+        checkDecomposition(centralDict)
 
     
     centralDict["extractDBTime"] = time.time() - startExtract
 
     print(f"({writeTime((time.time() - startExtract))})") 
     return centralDict
-
-      

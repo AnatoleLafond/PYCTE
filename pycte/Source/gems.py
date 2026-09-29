@@ -1,4 +1,8 @@
-import xgems
+try:
+    import xgems
+except ImportError as err:
+    raise ImportError("chemModule = 'xGEMS' needs xGEMS, which is not on PyPI : install it with conda "
+                      "(conda install -c conda-forge xgems)") from err
 import pandas as pd
 import sys
 import numpy as np
@@ -7,6 +11,12 @@ import importlib.util
 import os
 import concurrent.futures
 from pathlib import Path
+try:
+    from . import outputManager
+    from . import warningManager
+except ImportError:
+    import outputManager
+    import warningManager
 
 def writeTime(tps, arr=2):
     if tps >= 3600 * 24:
@@ -56,7 +66,7 @@ def speciation_xGEMS(centralDict,commMtrx):
         commMtrxCrossDep = pd.DataFrame(np.array([[1e5, 298.15]] * len(commMtrx)), columns=["pressure", "temperature(K)"])
     
     MultiCompoundTransport = centralDict['MultiCompoundTransport'] 
-    if centralDict['lStep'] ==0 : # initial conditions are DC
+    if centralDict['lStep'] ==0 :
     
         notThere = (centralDict['coord']+centralDict['speciesByClass']['T']+centralDict['speciesByClass']['W']+centralDict['speciesByClass']['O']+centralDict['speciesByClass']['G'] + centralDict['crossDependencies']['speciation']['total'] if centralDict['crossDependencies'] and centralDict['crossDependencies'].get('speciation') else []) 
     
@@ -64,12 +74,6 @@ def speciation_xGEMS(centralDict,commMtrx):
         if set(l).issubset(centralDict['speciesByClass']['S']):
             if centralDict['MultiCompoundTransport'] :
                 MultiCompoundTransport = False
-            # else:
-            #     MultiCompoundTransport = True
-        # elif not centralDict['MultiCompoundTransport'] :
-            # MultiCompoundTransport = True
-            # if centralDict['MultiCompoundTransport'] : MultiCompoundTransport = True
-            # else: MultiCompoundTransport = False
             
 
     if MultiCompoundTransport :
@@ -125,7 +129,6 @@ def speciation_xGEMS(centralDict,commMtrx):
 
     calcTime = 0
     
-    # print(commMtrx_primSpecies)
     
     for index in commMtrx_primSpecies.index:
         ref = time.perf_counter()
@@ -147,9 +150,7 @@ def speciation_xGEMS(centralDict,commMtrx):
         
     outputGems[centralDict['systemSpeciation']] = outputGems[centralDict['systemSpeciation']].clip(lower=0)
 
-    # phase species shall not be decomposed onto IC
     if centralDict['MultiCompoundTransport']:
-        # multi-component transport
         
         if centralDict['crossDependencies'] and centralDict['crossDependencies'].get('speciation'):
             commMtrxCrossDep = outputGems[centralDict['crossDependencies']['speciation']['total']].copy()
@@ -164,7 +165,7 @@ def speciation_xGEMS(centralDict,commMtrx):
         stoich_matrix = pd.DataFrame(0.0,index=species_list,columns=ic_list)
 
 
-        for comp in (centralDict['transportedSpecies']) : #species_list
+        for comp in (centralDict['transportedSpecies']) :
             for prim, coeff in centralDict['primToSecSpecies'][comp].items():
                 stoich_matrix.at[comp, prim] = coeff
         result = outputGems.values @ stoich_matrix.values
@@ -198,7 +199,8 @@ def spct(centralDict):
             futures = []
             for chunk in commMtrxSplit:
                 futures.append(
-                    executor.submit(
+                    warningManager.submit(
+                        executor,
                         speciation_xGEMS,
                         centralDict,
                         chunk,
@@ -218,8 +220,8 @@ def spct(centralDict):
         calcWallClock = max(calc)
         init = max(initWorker)
         
-        gemsStatusList = status[0]
-        gemsIterations = iteration[0]
+        gemsStatusList = [s for block in status for s in block]         # tous les workers, dans l'ordre des mailles
+        gemsIterations = [n for block in iteration for n in block]
         
     else:
         commMtrxSpct, commMtrx_primSpecies, gemsStatusList, gemsIterations, calcWallClock, init = speciation_xGEMS(centralDict,centralDict['commMtrx'][gemsInput])
@@ -251,12 +253,9 @@ def spct(centralDict):
                 warningLog.write(f"GEMS, node n°{i}, time step n°{centralDict['lStep']+1}, t={centralDict['tStep']}{centralDict['timeUnit']}, PID={os.getpid()} : {gemsStatus[status]}\n")
 
 
-    if centralDict["firstStepEquilibrium"]==True:
-        commMtrx_primSpecies.to_csv(os.path.join(centralDict['paths']['PrimarySpecies'], f"PrimarySpecies_{centralDict['lStep']}.txt"), index=False, header=True, sep='\t')
-        commMtrxSpct.to_csv(os.path.join(centralDict['paths']['Speciation'], f"xGEMS_{centralDict['lStep']}.txt"), index=False, header=True, sep='\t')
-    else:
-        commMtrx_primSpecies.to_csv(os.path.join(centralDict['paths']['PrimarySpecies'], f"PrimarySpecies_{centralDict['lStep']+1}.txt"), index=False, header=True, sep='\t')
-        commMtrxSpct.to_csv(os.path.join(centralDict['paths']['Speciation'], f"xGEMS_{centralDict['lStep']+1}.txt"), index=False, header=True, sep='\t')
+    if outputManager.wanted(centralDict, 'speciation'):
+        commMtrx_primSpecies.to_csv(outputManager.filePath(centralDict, 'primarySpecies', 'PrimarySpecies'), index=False, header=True, sep='\t')
+        commMtrxSpct.to_csv(outputManager.filePath(centralDict, 'speciation', 'xGEMS'), index=False, header=True, sep='\t')
     print()
     print(commMtrxSpct)
     

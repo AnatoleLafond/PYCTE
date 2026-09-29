@@ -6,6 +6,10 @@ import os
 import contextlib
 from scipy.integrate import solve_ivp
 from scipy.sparse import bsr_matrix
+try:
+    from . import outputManager
+except ImportError:
+    import outputManager
 
 @contextlib.contextmanager
 def redirect_stdout_fd(filepath, t, dt, lStep, timeUnit):
@@ -37,6 +41,7 @@ def writeTime(tps, arr=2):
         return f"{tps * 1000:.{arr}f} msec"
     else:
         return f"{tps:.{arr}f} sec"
+
 
 def _prepare(species, reactions):
 
@@ -72,7 +77,6 @@ def _rate_and_partials(C, rate_law, k):
 
     partials = {}
     for m_idx, n in rate_law:
-        # dr/dCm = n * Cm^(n-1) * (k * prod_{i != m} Ci^ni)
         rest = k
         for i_idx, ni in rate_law:
             if i_idx == m_idx:
@@ -118,15 +122,14 @@ def check_jacobian(rhs, jac, C0, n, eps=1e-6):
         J_fd[:, m] = (rhs(0.0, Cp) - f0) / eps
     return np.max(np.abs(J_analytic - J_fd))
 
-def make_block_rhs_and_jac(n_cells, n_species, prepared_reactions):
 
+def make_block_rhs_and_jac(n_cells, n_species, prepared_reactions):
 
     def blocks(C):
         J = np.zeros((n_cells, n_species, n_species))
         for rx in prepared_reactions:
             rate_law = rx["rate_law"]
             for m_idx, n in rate_law:
-                # dr/dCm = n * Cm^(n-1) * (k * prod_{i != m} Ci^ni)
                 rest = np.full(n_cells, float(rx["k"]))
                 for i_idx, ni in rate_law:
                     if i_idx == m_idx:
@@ -154,8 +157,6 @@ def make_block_rhs_and_jac(n_cells, n_species, prepared_reactions):
 
     def jac(t, Y):
         C = Y.reshape(n_cells, n_species)
-        # BSR : un bloc par maille sur la diagonale -> construction directe,
-        # sans passer par un assemblage générique.
         return bsr_matrix(
             (blocks(C), np.arange(n_cells), np.arange(n_cells + 1)),
             shape=(n_cells * n_species, n_species * n_cells),
@@ -170,11 +171,10 @@ def _integrate_block(rows, dt, prepared_reactions, n_species, method, rtol, atol
     rhs, jac = make_block_rhs_and_jac(n_cells, n_species, prepared_reactions)
 
     if method == "LSODA":
-        # Jacobien : bande = n_species-1 de part et d'autre (bloc-diagonal)
         extraKw = {"lband": n_species - 1, "uband": n_species - 1}
     elif method in ("RK45", "RK23", "DOP853"):
-        extraKw = {}                      # explicites : pas de Jacobien
-    else:                                  # BDF, Radau
+        extraKw = {}
+    else:
         extraKw = {"jac": jac}
 
     refCpu = time.thread_time()
@@ -183,7 +183,7 @@ def _integrate_block(rows, dt, prepared_reactions, n_species, method, rtol, atol
         t_span=(0.0, dt),
         y0=rows.ravel(),
         method=method,
-        t_eval=[dt],     
+        t_eval=[dt],
         rtol=rtol,
         atol=atol,
         **extraKw,
@@ -197,7 +197,9 @@ def _integrate_block(rows, dt, prepared_reactions, n_species, method, rtol, atol
 
 
 def kineticsSolve(centralDict, commMtrxPart):
-    species = list(centralDict['systemSpeciation'])
+    refInit = time.perf_counter()
+
+    species = list(commMtrxPart.columns)
     n_species = len(species)
     dt = centralDict['dtStep']
 
@@ -208,7 +210,7 @@ def kineticsSolve(centralDict, commMtrxPart):
 
     _, prepared = _prepare(species, centralDict['kineticReactions'])
 
-    rows = commMtrxPart[species].to_numpy(dtype=float, copy=True)
+    rows = commMtrxPart.to_numpy(dtype=float, copy=True)
     nrCells = rows.shape[0]
 
     if chunkSize is None or chunkSize >= nrCells:
@@ -216,6 +218,8 @@ def kineticsSolve(centralDict, commMtrxPart):
     else:
         edges = list(range(0, nrCells, int(chunkSize))) + [nrCells]
         bounds = list(zip(edges[:-1], edges[1:]))
+
+    initTime = time.perf_counter() - refInit
 
     with redirect_stdout_fd("kinetics_output.log", centralDict['tStep'],
                             centralDict['dtStep'], centralDict['lStep'],
@@ -246,40 +250,47 @@ def kineticsSolve(centralDict, commMtrxPart):
             print('KINETICS: pblm MB, tol = ', tol)
             sys.exit()
 
-    return outputKinetics, calcTime, cpuTime
+    return outputKinetics, calcTime, cpuTime, initTime
 
 
 def spct(centralDict):
+    startKinetics = time.perf_counter()
     print("nativeKinetics", end=" ", flush=True)
-    startKinetics = time.time()
-    if centralDict['dtStep'] <= 0:
-        commMtrxKin, calcWallClock, calcPrcsTime = centralDict['commMtrx'].copy(), 0,0
-    else:
-        commMtrxKin, calcWallClock, calcPrcsTime = kineticsSolve(
-        centralDict, centralDict['commMtrx'][centralDict['systemSpeciation']])
 
+    if centralDict['dtStep'] <= 0:
+        commMtrxKin = centralDict['commMtrx'].copy()
+        calcWallClock = calcPrcsTime = init = 0.0
+    else:
+        commMtrxKin, calcWallClock, calcPrcsTime, init = kineticsSolve(
+            centralDict, centralDict['commMtrx'][centralDict['systemSpecies']])
+
+        others = [c for c in centralDict['commMtrx'].columns if c not in centralDict['systemSpecies']]
         commMtrxKin = pd.concat(
-            [centralDict['commMtrx'][centralDict["anythingButSpecies"]], commMtrxKin],
+            [centralDict['commMtrx'][others], commMtrxKin],
             axis=1)
         commMtrxKin = commMtrxKin[centralDict['commMtrx'].columns]
-    
-    if centralDict['output'] and centralDict['output'].get('speciation') and (centralDict['lStep']+1) in centralDict['output']['speciation'] :
-       commMtrxKin.to_csv(os.path.join(centralDict['paths']['Speciation'], f"ORCHESTRA_{centralDict['lStep']+1}.txt"), index=False, header=True, sep='\t')
 
-    
+    if outputManager.wanted(centralDict, 'speciation'):
+        commMtrxKin.to_csv(outputManager.filePath(centralDict, 'speciation', 'nativeKinetics'),
+                           index=False, header=True, sep='\t')
+
+    elapsed = time.perf_counter() - startKinetics
+
     centralDict.update({
         "commMtrx": commMtrxKin,
-        "KINETICSInterfTime_WallClock": centralDict.get('KINETICSInterfTime_WallClock', 0.0)
-            + time.time() - startKinetics - calcWallClock,
-        "KINETICSCalcTime_WallClock": centralDict.get('KINETICSCalcTime_WallClock', 0.0)
-            + calcWallClock,
-        "KINETICSCalcTime_ProcessorTime": centralDict.get('KINETICSCalcTime_ProcessorTime', 0.0)
-            + calcPrcsTime,
-        "KINETICSTotalTime": centralDict.get('KINETICSTotalTime', 0.0)
-            + time.time() - startKinetics,
+        "nativeKineticsCalcTime_WallClock":
+            centralDict.get("nativeKineticsCalcTime_WallClock", 0.0) + calcWallClock,
+        "nativeKineticsCalcTime_ProcessorTime":
+            centralDict.get("nativeKineticsCalcTime_ProcessorTime", 0.0) + calcPrcsTime,
+        "nativeKineticsInterfTime_WallClock":
+            centralDict.get("nativeKineticsInterfTime_WallClock", 0.0)
+            + elapsed - calcWallClock - init,
+        "nativeKineticsInitTime":
+            centralDict.get("nativeKineticsInitTime", 0.0) + init,
+        "nativeKineticsTotalTime":
+            centralDict.get("nativeKineticsTotalTime", 0.0) + elapsed,
     })
 
-    print(f"({writeTime((time.time() - startKinetics))})")
+    print(f"({writeTime(elapsed)})")
 
     return centralDict
-
