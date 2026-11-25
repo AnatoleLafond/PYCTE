@@ -20,6 +20,8 @@
 @Calc: (1,  "watervolume = porosity * totvolume * saturation")     // is total water volume per cell
 @Calc: (1,  "gasvolume   = porosity * (1-saturation)")             // is tot gas volume per liter water
 @Calc: (1,  "SL = ((1-porosity)*density) / (porosity*saturation)")
+@Var: tolerance 1e-6
+@Calc:(1, "tolerance = 1e-8") // this was copied from the java version
 
 
 //@writeExpandedText:

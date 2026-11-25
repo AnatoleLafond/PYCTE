@@ -51,6 +51,7 @@ CHEMISTRY
     NO3-pycte
     O2pycte
     OH-pycte
+	KOHpycte
   /
   SECONDARY_SPECIES
     OH-
@@ -77,6 +78,7 @@ CHEMISTRY
     H+pycte
     H2pycte
     K+pycte
+	KOHpycte
     N2pycte
     Na+pycte
     NaOHpycte
@@ -94,7 +96,7 @@ REFERENCE_POROSITY 1
 # == discretization ===========================================================
 GRID
   TYPE STRUCTURED
-  NXYZ 41 1 1
+  NXYZ 40 1 1
   BOUNDS
     0.d0 0.d0 0.d0
     0.08d0 1.d0 1.d0
@@ -109,7 +111,11 @@ MATERIAL_PROPERTY HD
   ID 1
   POROSITY 1 # 0.61
   TORTUOSITY 1.0
-  LONGITUDINAL_DISPERSIVITY 0.002
+  # alpha = 0.002 m dans ref.pqi. Le transport GIRT est upwind implicite d'ordre 1 : il ajoute une
+  # dispersivite numerique ~ dx/2 + v.dt/2 = 0.001 + 2.778e-6*20/2 = 0.00103 m (dx = 0.002 m, dt <= 20 s).
+  # Dispersivite physique entree = 0.002 - 0.00103 pour que la dispersion totale soit celle de PHREEQC.
+  # Revenir a 0.002 pour la dispersivite physique seule.
+  LONGITUDINAL_DISPERSIVITY 0.00097
   #PERMEABILITY
   #  PERM_ISO 5.43d-13
   /
@@ -117,7 +123,7 @@ MATERIAL_PROPERTY HD
 # == output ===================================================================
 OUTPUT
   TIMES s 720
-  FORMAT TECPLOT POINT
+  FORMAT HDF5
 END
 # == times ====================================================================
 TIME
@@ -157,14 +163,17 @@ TRANSPORT_CONDITION Initial
     0.d0 Initial
   /
 END
+# sortie : flux diffusif nul, seule l'advection sort (= flux de PHREEQC, closed/Outflow de nativeTransport)
 TRANSPORT_CONDITION east
-  TYPE DIRICHLET
+  TYPE ZERO_GRADIENT
   CONSTRAINT_LIST
     0.d0 Initial
   /
 END
+# entree : condition de 3e type (Robin / Danckwerts) en flux entrant, v.c - D.dc/dx = v.c_Inlet1
+# (= flux de PHREEQC et de nativeTransport) ; DIRICHLET ajoutait un flux dispersif sur la demi-maille
 TRANSPORT_CONDITION west
-  TYPE DIRICHLET
+  TYPE ZERO_GRADIENT
   CONSTRAINT_LIST
     0.d0    Inlet1
   /
@@ -200,6 +209,7 @@ CONSTRAINT Initial
     H+pycte     1.d-40  T DATASET Hpycte_init
     H2pycte     1.d-40  T DATASET H2pycte_init
     K+pycte     1.d-40  T DATASET Kpycte_init
+	KOHpycte    1.d-40  T DATASET KOHpycte_init
     N2pycte     1.d-40  T DATASET N2pycte_init
     Na+pycte    1.d-40  T DATASET Napycte_init
     NaOHpycte   1.d-40  T DATASET NaOHpycte_init
@@ -295,6 +305,10 @@ DATASET OHpycte_init
   HDF5_DATASET_NAME OH-i
   FILENAME testpycte.h5
 END
+DATASET KOHpycte_init
+  HDF5_DATASET_NAME KOHi
+  FILENAME testpycte.h5
+END
 # == inlet ====================================================================
 CONSTRAINT Inlet1
   CONCENTRATIONS
@@ -304,7 +318,7 @@ CONSTRAINT Inlet1
     #NH4Xpycte   1.d-40 T
     Ca+2pycte   0.6d-3 T
     CaOH+pycte  1.d-40 T
-    Cl-pycte    1.3d-3 T
+    Cl-pycte    1.2d-3 T
     H+pycte     1.d-40 T
     H2pycte     1.d-40 T
     K+pycte     1.d-40 T
@@ -318,6 +332,7 @@ CONSTRAINT Inlet1
     O2pycte     1.d-40 T
     OH-pycte    1.d-40 T
     H+          1.d-7  T
+	KOHpycte    1.d-40 T
 
   /
 END

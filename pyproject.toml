@@ -1,11 +1,15 @@
 [project]
 name = "pycte"
-version = "0.1.3"
+version = "0.1.3.4"
 description = "PYthon generiC inTerfacE : coupling of speciation and transport solvers"
 readme = "README.md"
 authors = [ { name = "Anatole Lafond"}]
-license = "Apache-2.0"
-license-files = ["LICENSE.txt"]
+# pycte is Apache-2.0; the compiled solvers it ships keep their licenses (pycte/orchestra_src, pycte/gems_src NOTICE.txt)
+license = "Apache-2.0 AND GPL-3.0-or-later AND LGPL-3.0-or-later AND MPL-2.0 AND MIT AND (Apache-2.0 OR MIT) AND BSL-1.0"
+license-files = ["LICENSE.txt", "pycte/orchestra_src/LICENSE", "pycte/orchestra_src/NOTICE.txt",
+                 "pycte/gems_src/NOTICE.txt", "pycte/gems_src/COPYING", "pycte/gems_src/COPYING.LESSER",
+                 "pycte/gems_src/include/eigen3/COPYING.MPL2", "pycte/gems_src/include/spdlog/LICENSE",
+                 "pycte/gems_src/include/spdlog/fmt/bundled/fmt.license.rst"]
 
 requires-python = ">=3.11"
 
@@ -14,9 +18,12 @@ dependencies = [
     "pandas>=2.2.2",                
     "scipy>=1.13",                  
     "charset-normalizer>=3.0",      
-    "phreeqpy>=0.6",                
-    "h5py>=3.11",                   
-    "mph>=1.2",                    
+    "phreeqpy>=0.6",                # interface PhreeqC (IPhreeqc)
+    # interface PhreeqcRM ; its wheels need macOS 15 (Darwin 24) since 0.0.19 : 0.0.18 on older macOS (same results)
+    "phreeqcrm>=0.0.20; sys_platform != 'darwin' or platform_release >= '24'",
+    "phreeqcrm==0.0.18; sys_platform == 'darwin' and platform_release < '24'",
+    "h5py>=3.11",                   # interface PFLOTRAN (logiciel installe separement)
+    "mph>=1.2",                     # interface COMSOL (logiciel installe separement)
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -31,18 +38,8 @@ classifiers = [
 [project.urls]
 Repository = "https://github.com/AnatoleLafond/PYCTE"
 
-[project.optional-dependencies]
-extractdb = []
-phreeqc = []
-pflotran = []
-comsol = []
-gems = []
-orchestra = []
-native = []
-all = []
-
 [build-system]
-requires = ["setuptools>=77.0"]
+requires = ["setuptools>=77.0", "pybind11>=2.10"]      # pybind11 : ORCHESTRA and xGEMS compiled with pycte (setup.py)
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
@@ -52,15 +49,41 @@ packages = [
     "pycte.Examples",
     "pycte.Examples.CationExchange",
     "pycte.Examples.CalciteDolomite",
-    "pycte.Examples.CalciteDolomite.Resources",             
+    "pycte.Examples.CalciteDolomite.Resources",             # dossiers de donnees (sans .py)
     "pycte.Examples.CalciteDolomite.Resources.CalciteIC",
+    "pycte.Examples.CalciteDolomite.orchestra",              # base GEMS convertie pour ORCHESTRA
+    "pycte.Examples.CalciteDolomite.phreeqc",                # base GEMS convertie pour PhreeqC
     "pycte.Examples.AldicarbInfiltration",
     "pycte.Examples.CementClayInterface",
+    "pycte.Examples.LactateAcetate",
+    "pycte.Examples.ElectroTransport",
 ]
 
 [tool.setuptools.package-data]
 "pycte.Examples.CationExchange" = ["*.dat", "*.txt", "*.inp", "*.mph", "*.in"]
 "pycte.Examples.CalciteDolomite" = ["*.txt", "*.in", "*.mph"]
 "pycte.Examples.CalciteDolomite.Resources.CalciteIC" = ["*.dat", "*.lst"]
+"pycte.Examples.CalciteDolomite.orchestra" = ["*.inp", "*.txt", "*.csv"]
+"pycte.Examples.CalciteDolomite.phreeqc" = ["*.dat", "*.txt"]
 "pycte.Examples.AldicarbInfiltration" = ["*.dat", "*.txt", "*.inp", "*.mph"]
-"pycte.Examples.CementClayInterface" = ["*.dat", "*.txt", "*.inp"]
+"pycte.Examples.CementClayInterface" = ["*.dat", "*.txt", "*.inp", "*.mph", "*.in"]
+"pycte.Examples.LactateAcetate" = ["*.txt"]
+"pycte.Examples.ElectroTransport" = ["*.txt"]
+
+[tool.setuptools.exclude-package-data]
+"pycte" = ["orchestra_src/*", "gems_src/*", "gems_src/**/*", "phreeqc_src/*", "text_src/*"]   # sources C / C++ : dans le sdist seulement (MANIFEST.in)
+
+# wheels compilees (ORCHESTRA, xGEMS) pour Windows, Linux et macOS : .github/workflows/wheels.yml
+[tool.cibuildwheel]
+build = "cp311-* cp312-* cp313-* cp314-*"
+skip = "*-musllinux_* *_i686"
+test-command = "python -c \"import pycte.PyORCHESTRA, pycte.PyxGEMS, pycte._phreeqcRow, pycte._floatText\""   # optional extensions : check they were built
+
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "arm64"]
+environment = { MACOSX_DEPLOYMENT_TARGET = "10.15" }      # C++20 library of GEMS3K / xGEMS (std::filesystem, ...)
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]
+before-build = "pip install delvewheel"
+repair-wheel-command = "delvewheel repair -w {dest_dir} {wheel}"   # embarque msvcp140.dll (absent du Python de python.org)

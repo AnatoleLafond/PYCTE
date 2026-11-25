@@ -1,0 +1,1128 @@
+# Cement / clay interface benchmark, ORCHESTRA, multi-species transport : PFLOTRAN transports, pycte computes the chemistry.
+# Every transported column of pycte is a neutral tracer <name>pycte of pflotranDB.txt (no reaction, no activity).
+# A column that can be negative is split : <name>pycte (positive part) and <name>_negpycte (negative part).
+# Pore diffusion coefficient = DIFFUSION_COEFFICIENT * TORTUOSITY : cement 3.38e-11, clay 1.44e-10 m2/s.
+# x = 0 closed (no flux), x = 10.3 m : clay water (Dirichlet, constraint Clay = secondBoundary of pycte).
+SIMULATION
+  SIMULATION_TYPE SUBSURFACE
+  PROCESS_MODELS
+    SUBSURFACE_TRANSPORT transport
+      MODE GIRT
+    /
+  /
+END
+SUBSURFACE
+# == numerical methods ========================================================
+NUMERICAL_METHODS TRANSPORT
+  TIMESTEPPER
+    TS_ACCELERATION 8
+    MAX_STEPS 100000
+  /
+  NEWTON_SOLVER
+    PRECONDITIONER_MATRIX_TYPE AIJ
+    RTOL 1.d-10
+    ATOL 1.d-50
+    STOL 1.d-12
+  /
+  LINEAR_SOLVER
+    SOLVER DIRECT
+  /
+END
+SPECIFIED_VELOCITY
+  UNIFORM? YES
+  DATASET 0.d0 0.d0 0.d0 m/s
+END
+# == chemistry ================================================================
+CHEMISTRY
+  PRIMARY_SPECIES
+    OH-pycte
+    H+pycte
+    H2Opycte
+    Al[OH]4-pycte
+    NaAl[OH]4pycte
+    Al[OH]3pycte
+    Al[OH]2+pycte
+    Al[OH]+2pycte
+    AlH3SiO4+2pycte
+    Al+3pycte
+    Al[SO4]+pycte
+    CH4pycte
+    CH3-pycte
+    Na[CO3]-pycte
+    CO3-2pycte
+    CaCO3pycte
+    HCO3-pycte
+    Na[HCO3]pycte
+    Ca[HCO3]+pycte
+    Mg[CO3]pycte
+    CO2pycte
+    Mg[HCO3]+pycte
+    Sr[CO3]pycte
+    Fe[OH]CO3pycte
+    FeCO3pycte
+    Fe[CO3]2-2pycte
+    Sr[HCO3]+pycte
+    Fe[CO3]3-3pycte
+    COpycte
+    Ca[OH]+pycte
+    Ca+2pycte
+    Ca[SO4]pycte
+    Ca[H3SiO4]+pycte
+    CaCl+pycte
+    CaCl2pycte
+    Ca[S2O3]pycte
+    Cl-pycte
+    KClpycte
+    NaClpycte
+    MgCl+pycte
+    HClpycte
+    SrCl+pycte
+    FeCl+pycte
+    FeCl+2pycte
+    FeCl2+pycte
+    FeCl3pycte
+    Cl2pycte
+    FeCl4-pycte
+    ClO4-pycte
+    Fe[OH]4-2pycte
+    Fe[OH]3-pycte
+    Fe[OH]2pycte
+    Fe[OH]+pycte
+    Fe+2pycte
+    Fe[SO4]pycte
+    Fe[HS]+pycte
+    Fe[HS]2pycte
+    Fe[OH]4-pycte
+    Fe[OH]3pycte
+    Fe[OH]2+pycte
+    Fe[OH]+2pycte
+    Fe[H3SiO4]+2pycte
+    Fe+3pycte
+    Fe[SO4]+pycte
+    Fe[SO4]2-pycte
+    Fe2[OH]2+4pycte
+    Fe3[OH]4+5pycte
+    FeS2O3+pycte
+    H2pycte
+    K+pycte
+    K[OH]pycte
+    K[SO4]-pycte
+    Mg[OH]+pycte
+    Mg+2pycte
+    Mg[SO4]pycte
+    Mg[H3SiO4]+pycte
+    Mg4[OH]4+4pycte
+    Mg[S2O3]pycte
+    Na+pycte
+    Na[OH]pycte
+    Na[SO4]-pycte
+    Na[S2O3]-pycte
+    O2pycte
+    HS-pycte
+    S-2pycte
+    H2Spycte
+    S2-2pycte
+    S3-2pycte
+    S4-2pycte
+    S5-2pycte
+    S2O3-2pycte
+    H[S2O3]-pycte
+    Sr[S2O3]pycte
+    H2[S2O3]pycte
+    S2O4-2pycte
+    HS2O4-pycte
+    H2S2O4pycte
+    SO3-2pycte
+    H[SO3]-pycte
+    SO2pycte
+    H2[SO3]pycte
+    S2O5-2pycte
+    S3O6-2pycte
+    S4O6-2pycte
+    S5O6-2pycte
+    SO4-2pycte
+    H[SO4]-pycte
+    Sr[SO4]pycte
+    HSO5-pycte
+    S2O8-2pycte
+    H2[SiO4]-2pycte
+    H3[SiO4]-pycte
+    H4[SiO4]pycte
+    Si2O3[OH]4-2pycte
+    Si2O2[OH]5-pycte
+    Si3O6[OH]3-3pycte
+    Si3O5[OH]5-3pycte
+    Si4O7[OH]6-4pycte
+    Si4O8[OH]4-4pycte
+    Si4O6[OH]6-2pycte
+    Si6O15-6pycte
+    Sr+2pycte
+    Sr[OH]+pycte
+  /
+  DATABASE pflotranDB.txt
+  ACTIVITY_COEFFICIENTS OFF
+  MOLAL
+  OUTPUT
+    OH-pycte
+    H+pycte
+    H2Opycte
+    Al[OH]4-pycte
+    NaAl[OH]4pycte
+    Al[OH]3pycte
+    Al[OH]2+pycte
+    Al[OH]+2pycte
+    AlH3SiO4+2pycte
+    Al+3pycte
+    Al[SO4]+pycte
+    CH4pycte
+    CH3-pycte
+    Na[CO3]-pycte
+    CO3-2pycte
+    CaCO3pycte
+    HCO3-pycte
+    Na[HCO3]pycte
+    Ca[HCO3]+pycte
+    Mg[CO3]pycte
+    CO2pycte
+    Mg[HCO3]+pycte
+    Sr[CO3]pycte
+    Fe[OH]CO3pycte
+    FeCO3pycte
+    Fe[CO3]2-2pycte
+    Sr[HCO3]+pycte
+    Fe[CO3]3-3pycte
+    COpycte
+    Ca[OH]+pycte
+    Ca+2pycte
+    Ca[SO4]pycte
+    Ca[H3SiO4]+pycte
+    CaCl+pycte
+    CaCl2pycte
+    Ca[S2O3]pycte
+    Cl-pycte
+    KClpycte
+    NaClpycte
+    MgCl+pycte
+    HClpycte
+    SrCl+pycte
+    FeCl+pycte
+    FeCl+2pycte
+    FeCl2+pycte
+    FeCl3pycte
+    Cl2pycte
+    FeCl4-pycte
+    ClO4-pycte
+    Fe[OH]4-2pycte
+    Fe[OH]3-pycte
+    Fe[OH]2pycte
+    Fe[OH]+pycte
+    Fe+2pycte
+    Fe[SO4]pycte
+    Fe[HS]+pycte
+    Fe[HS]2pycte
+    Fe[OH]4-pycte
+    Fe[OH]3pycte
+    Fe[OH]2+pycte
+    Fe[OH]+2pycte
+    Fe[H3SiO4]+2pycte
+    Fe+3pycte
+    Fe[SO4]+pycte
+    Fe[SO4]2-pycte
+    Fe2[OH]2+4pycte
+    Fe3[OH]4+5pycte
+    FeS2O3+pycte
+    H2pycte
+    K+pycte
+    K[OH]pycte
+    K[SO4]-pycte
+    Mg[OH]+pycte
+    Mg+2pycte
+    Mg[SO4]pycte
+    Mg[H3SiO4]+pycte
+    Mg4[OH]4+4pycte
+    Mg[S2O3]pycte
+    Na+pycte
+    Na[OH]pycte
+    Na[SO4]-pycte
+    Na[S2O3]-pycte
+    O2pycte
+    HS-pycte
+    S-2pycte
+    H2Spycte
+    S2-2pycte
+    S3-2pycte
+    S4-2pycte
+    S5-2pycte
+    S2O3-2pycte
+    H[S2O3]-pycte
+    Sr[S2O3]pycte
+    H2[S2O3]pycte
+    S2O4-2pycte
+    HS2O4-pycte
+    H2S2O4pycte
+    SO3-2pycte
+    H[SO3]-pycte
+    SO2pycte
+    H2[SO3]pycte
+    S2O5-2pycte
+    S3O6-2pycte
+    S4O6-2pycte
+    S5O6-2pycte
+    SO4-2pycte
+    H[SO4]-pycte
+    Sr[SO4]pycte
+    HSO5-pycte
+    S2O8-2pycte
+    H2[SiO4]-2pycte
+    H3[SiO4]-pycte
+    H4[SiO4]pycte
+    Si2O3[OH]4-2pycte
+    Si2O2[OH]5-pycte
+    Si3O6[OH]3-3pycte
+    Si3O5[OH]5-3pycte
+    Si4O7[OH]6-4pycte
+    Si4O8[OH]4-4pycte
+    Si4O6[OH]6-2pycte
+    Si6O15-6pycte
+    Sr+2pycte
+    Sr[OH]+pycte
+    TOTAL
+  /
+END
+# == discretization (meshing of pycte : 15 + 35 + 10 + 30 cells, 10.3 m) ======
+GRID
+  TYPE STRUCTURED
+  NXYZ 90 1 1
+  DXYZ
+    15*0.02d0 35*0.04285714285714286 10*0.1d0 30*0.25d0
+    1.d0
+    1.d0
+  /
+END
+# == fluid properties =========================================================
+FLUID_PROPERTY
+  DIFFUSION_COEFFICIENT 1e-09
+END
+# == material properties ======================================================
+MATERIAL_PROPERTY cement
+  ID 1
+  POROSITY 0.13
+  TORTUOSITY 0.0338
+  LONGITUDINAL_DISPERSIVITY 0.d0
+END
+MATERIAL_PROPERTY clay
+  ID 2
+  POROSITY 0.18
+  TORTUOSITY 0.144
+  LONGITUDINAL_DISPERSIVITY 0.d0
+END
+# == output ===================================================================
+OUTPUT
+  TIMES y 1
+  FORMAT HDF5
+END
+# == times (end time and output time rewritten by pycte at every coupling step) =
+TIME
+  FINAL_TIME 1 y
+  INITIAL_TIMESTEP_SIZE 1.d-3 y
+  MAXIMUM_TIMESTEP_SIZE 0.02 y
+END
+# == regions ==================================================================
+REGION all
+  COORDINATES
+    -1.d20 -1.d20 -1.d20
+    1.d20 1.d20 1.d20
+  /
+END
+REGION cement
+  BLOCK 1 15 1 1 1 1
+END
+REGION clay
+  BLOCK 16 90 1 1 1 1
+END
+REGION east
+  FACE EAST
+  COORDINATES
+    10.3d0 0.d0 0.d0
+    10.3d0 1.d0 1.d0
+  /
+END
+# == transport conditions =====================================================
+TRANSPORT_CONDITION Initial
+  TYPE DIRICHLET
+  CONSTRAINT_LIST
+    0.d0 Initial
+  /
+END
+TRANSPORT_CONDITION east
+  TYPE DIRICHLET
+  CONSTRAINT_LIST
+    0.d0 Clay
+  /
+END
+# == couplers =================================================================
+INITIAL_CONDITION Initial
+  TRANSPORT_CONDITION Initial
+  REGION all
+END
+BOUNDARY_CONDITION east
+  TRANSPORT_CONDITION east
+  REGION east
+END
+# == stratigraphy =============================================================
+STRATA
+  MATERIAL cement
+  REGION cement
+END
+STRATA
+  MATERIAL clay
+  REGION clay
+END
+# == constraints : initial state written by pycte in testpycte.h5 (<name>i) ===
+CONSTRAINT Initial
+  CONCENTRATIONS
+    OH-pycte           1.d-40 T DATASET ic001
+    H+pycte            1.d-40 T DATASET ic002
+    H2Opycte           1.d-40 T DATASET ic003
+    Al[OH]4-pycte      1.d-40 T DATASET ic004
+    NaAl[OH]4pycte     1.d-40 T DATASET ic005
+    Al[OH]3pycte       1.d-40 T DATASET ic006
+    Al[OH]2+pycte      1.d-40 T DATASET ic007
+    Al[OH]+2pycte      1.d-40 T DATASET ic008
+    AlH3SiO4+2pycte    1.d-40 T DATASET ic009
+    Al+3pycte          1.d-40 T DATASET ic010
+    Al[SO4]+pycte      1.d-40 T DATASET ic011
+    CH4pycte           1.d-40 T DATASET ic012
+    CH3-pycte          1.d-40 T DATASET ic013
+    Na[CO3]-pycte      1.d-40 T DATASET ic014
+    CO3-2pycte         1.d-40 T DATASET ic015
+    CaCO3pycte         1.d-40 T DATASET ic016
+    HCO3-pycte         1.d-40 T DATASET ic017
+    Na[HCO3]pycte      1.d-40 T DATASET ic018
+    Ca[HCO3]+pycte     1.d-40 T DATASET ic019
+    Mg[CO3]pycte       1.d-40 T DATASET ic020
+    CO2pycte           1.d-40 T DATASET ic021
+    Mg[HCO3]+pycte     1.d-40 T DATASET ic022
+    Sr[CO3]pycte       1.d-40 T DATASET ic023
+    Fe[OH]CO3pycte     1.d-40 T DATASET ic024
+    FeCO3pycte         1.d-40 T DATASET ic025
+    Fe[CO3]2-2pycte    1.d-40 T DATASET ic026
+    Sr[HCO3]+pycte     1.d-40 T DATASET ic027
+    Fe[CO3]3-3pycte    1.d-40 T DATASET ic028
+    COpycte            1.d-40 T DATASET ic029
+    Ca[OH]+pycte       1.d-40 T DATASET ic030
+    Ca+2pycte          1.d-40 T DATASET ic031
+    Ca[SO4]pycte       1.d-40 T DATASET ic032
+    Ca[H3SiO4]+pycte   1.d-40 T DATASET ic033
+    CaCl+pycte         1.d-40 T DATASET ic034
+    CaCl2pycte         1.d-40 T DATASET ic035
+    Ca[S2O3]pycte      1.d-40 T DATASET ic036
+    Cl-pycte           1.d-40 T DATASET ic037
+    KClpycte           1.d-40 T DATASET ic038
+    NaClpycte          1.d-40 T DATASET ic039
+    MgCl+pycte         1.d-40 T DATASET ic040
+    HClpycte           1.d-40 T DATASET ic041
+    SrCl+pycte         1.d-40 T DATASET ic042
+    FeCl+pycte         1.d-40 T DATASET ic043
+    FeCl+2pycte        1.d-40 T DATASET ic044
+    FeCl2+pycte        1.d-40 T DATASET ic045
+    FeCl3pycte         1.d-40 T DATASET ic046
+    Cl2pycte           1.d-40 T DATASET ic047
+    FeCl4-pycte        1.d-40 T DATASET ic048
+    ClO4-pycte         1.d-40 T DATASET ic049
+    Fe[OH]4-2pycte     1.d-40 T DATASET ic050
+    Fe[OH]3-pycte      1.d-40 T DATASET ic051
+    Fe[OH]2pycte       1.d-40 T DATASET ic052
+    Fe[OH]+pycte       1.d-40 T DATASET ic053
+    Fe+2pycte          1.d-40 T DATASET ic054
+    Fe[SO4]pycte       1.d-40 T DATASET ic055
+    Fe[HS]+pycte       1.d-40 T DATASET ic056
+    Fe[HS]2pycte       1.d-40 T DATASET ic057
+    Fe[OH]4-pycte      1.d-40 T DATASET ic058
+    Fe[OH]3pycte       1.d-40 T DATASET ic059
+    Fe[OH]2+pycte      1.d-40 T DATASET ic060
+    Fe[OH]+2pycte      1.d-40 T DATASET ic061
+    Fe[H3SiO4]+2pycte  1.d-40 T DATASET ic062
+    Fe+3pycte          1.d-40 T DATASET ic063
+    Fe[SO4]+pycte      1.d-40 T DATASET ic064
+    Fe[SO4]2-pycte     1.d-40 T DATASET ic065
+    Fe2[OH]2+4pycte    1.d-40 T DATASET ic066
+    Fe3[OH]4+5pycte    1.d-40 T DATASET ic067
+    FeS2O3+pycte       1.d-40 T DATASET ic068
+    H2pycte            1.d-40 T DATASET ic069
+    K+pycte            1.d-40 T DATASET ic070
+    K[OH]pycte         1.d-40 T DATASET ic071
+    K[SO4]-pycte       1.d-40 T DATASET ic072
+    Mg[OH]+pycte       1.d-40 T DATASET ic073
+    Mg+2pycte          1.d-40 T DATASET ic074
+    Mg[SO4]pycte       1.d-40 T DATASET ic075
+    Mg[H3SiO4]+pycte   1.d-40 T DATASET ic076
+    Mg4[OH]4+4pycte    1.d-40 T DATASET ic077
+    Mg[S2O3]pycte      1.d-40 T DATASET ic078
+    Na+pycte           1.d-40 T DATASET ic079
+    Na[OH]pycte        1.d-40 T DATASET ic080
+    Na[SO4]-pycte      1.d-40 T DATASET ic081
+    Na[S2O3]-pycte     1.d-40 T DATASET ic082
+    O2pycte            1.d-40 T DATASET ic083
+    HS-pycte           1.d-40 T DATASET ic084
+    S-2pycte           1.d-40 T DATASET ic085
+    H2Spycte           1.d-40 T DATASET ic086
+    S2-2pycte          1.d-40 T DATASET ic087
+    S3-2pycte          1.d-40 T DATASET ic088
+    S4-2pycte          1.d-40 T DATASET ic089
+    S5-2pycte          1.d-40 T DATASET ic090
+    S2O3-2pycte        1.d-40 T DATASET ic091
+    H[S2O3]-pycte      1.d-40 T DATASET ic092
+    Sr[S2O3]pycte      1.d-40 T DATASET ic093
+    H2[S2O3]pycte      1.d-40 T DATASET ic094
+    S2O4-2pycte        1.d-40 T DATASET ic095
+    HS2O4-pycte        1.d-40 T DATASET ic096
+    H2S2O4pycte        1.d-40 T DATASET ic097
+    SO3-2pycte         1.d-40 T DATASET ic098
+    H[SO3]-pycte       1.d-40 T DATASET ic099
+    SO2pycte           1.d-40 T DATASET ic100
+    H2[SO3]pycte       1.d-40 T DATASET ic101
+    S2O5-2pycte        1.d-40 T DATASET ic102
+    S3O6-2pycte        1.d-40 T DATASET ic103
+    S4O6-2pycte        1.d-40 T DATASET ic104
+    S5O6-2pycte        1.d-40 T DATASET ic105
+    SO4-2pycte         1.d-40 T DATASET ic106
+    H[SO4]-pycte       1.d-40 T DATASET ic107
+    Sr[SO4]pycte       1.d-40 T DATASET ic108
+    HSO5-pycte         1.d-40 T DATASET ic109
+    S2O8-2pycte        1.d-40 T DATASET ic110
+    H2[SiO4]-2pycte    1.d-40 T DATASET ic111
+    H3[SiO4]-pycte     1.d-40 T DATASET ic112
+    H4[SiO4]pycte      1.d-40 T DATASET ic113
+    Si2O3[OH]4-2pycte  1.d-40 T DATASET ic114
+    Si2O2[OH]5-pycte   1.d-40 T DATASET ic115
+    Si3O6[OH]3-3pycte  1.d-40 T DATASET ic116
+    Si3O5[OH]5-3pycte  1.d-40 T DATASET ic117
+    Si4O7[OH]6-4pycte  1.d-40 T DATASET ic118
+    Si4O8[OH]4-4pycte  1.d-40 T DATASET ic119
+    Si4O6[OH]6-2pycte  1.d-40 T DATASET ic120
+    Si6O15-6pycte      1.d-40 T DATASET ic121
+    Sr+2pycte          1.d-40 T DATASET ic122
+    Sr[OH]+pycte       1.d-40 T DATASET ic123
+  /
+END
+DATASET ic001
+  HDF5_DATASET_NAME OH-i
+  FILENAME testpycte.h5
+END
+DATASET ic002
+  HDF5_DATASET_NAME H+i
+  FILENAME testpycte.h5
+END
+DATASET ic003
+  HDF5_DATASET_NAME H2Oi
+  FILENAME testpycte.h5
+END
+DATASET ic004
+  HDF5_DATASET_NAME Al[OH]4-i
+  FILENAME testpycte.h5
+END
+DATASET ic005
+  HDF5_DATASET_NAME NaAl[OH]4i
+  FILENAME testpycte.h5
+END
+DATASET ic006
+  HDF5_DATASET_NAME Al[OH]3i
+  FILENAME testpycte.h5
+END
+DATASET ic007
+  HDF5_DATASET_NAME Al[OH]2+i
+  FILENAME testpycte.h5
+END
+DATASET ic008
+  HDF5_DATASET_NAME Al[OH]+2i
+  FILENAME testpycte.h5
+END
+DATASET ic009
+  HDF5_DATASET_NAME AlH3SiO4+2i
+  FILENAME testpycte.h5
+END
+DATASET ic010
+  HDF5_DATASET_NAME Al+3i
+  FILENAME testpycte.h5
+END
+DATASET ic011
+  HDF5_DATASET_NAME Al[SO4]+i
+  FILENAME testpycte.h5
+END
+DATASET ic012
+  HDF5_DATASET_NAME CH4i
+  FILENAME testpycte.h5
+END
+DATASET ic013
+  HDF5_DATASET_NAME CH3-i
+  FILENAME testpycte.h5
+END
+DATASET ic014
+  HDF5_DATASET_NAME Na[CO3]-i
+  FILENAME testpycte.h5
+END
+DATASET ic015
+  HDF5_DATASET_NAME CO3-2i
+  FILENAME testpycte.h5
+END
+DATASET ic016
+  HDF5_DATASET_NAME CaCO3i
+  FILENAME testpycte.h5
+END
+DATASET ic017
+  HDF5_DATASET_NAME HCO3-i
+  FILENAME testpycte.h5
+END
+DATASET ic018
+  HDF5_DATASET_NAME Na[HCO3]i
+  FILENAME testpycte.h5
+END
+DATASET ic019
+  HDF5_DATASET_NAME Ca[HCO3]+i
+  FILENAME testpycte.h5
+END
+DATASET ic020
+  HDF5_DATASET_NAME Mg[CO3]i
+  FILENAME testpycte.h5
+END
+DATASET ic021
+  HDF5_DATASET_NAME CO2i
+  FILENAME testpycte.h5
+END
+DATASET ic022
+  HDF5_DATASET_NAME Mg[HCO3]+i
+  FILENAME testpycte.h5
+END
+DATASET ic023
+  HDF5_DATASET_NAME Sr[CO3]i
+  FILENAME testpycte.h5
+END
+DATASET ic024
+  HDF5_DATASET_NAME Fe[OH]CO3i
+  FILENAME testpycte.h5
+END
+DATASET ic025
+  HDF5_DATASET_NAME FeCO3i
+  FILENAME testpycte.h5
+END
+DATASET ic026
+  HDF5_DATASET_NAME Fe[CO3]2-2i
+  FILENAME testpycte.h5
+END
+DATASET ic027
+  HDF5_DATASET_NAME Sr[HCO3]+i
+  FILENAME testpycte.h5
+END
+DATASET ic028
+  HDF5_DATASET_NAME Fe[CO3]3-3i
+  FILENAME testpycte.h5
+END
+DATASET ic029
+  HDF5_DATASET_NAME COi
+  FILENAME testpycte.h5
+END
+DATASET ic030
+  HDF5_DATASET_NAME Ca[OH]+i
+  FILENAME testpycte.h5
+END
+DATASET ic031
+  HDF5_DATASET_NAME Ca+2i
+  FILENAME testpycte.h5
+END
+DATASET ic032
+  HDF5_DATASET_NAME Ca[SO4]i
+  FILENAME testpycte.h5
+END
+DATASET ic033
+  HDF5_DATASET_NAME Ca[H3SiO4]+i
+  FILENAME testpycte.h5
+END
+DATASET ic034
+  HDF5_DATASET_NAME CaCl+i
+  FILENAME testpycte.h5
+END
+DATASET ic035
+  HDF5_DATASET_NAME CaCl2i
+  FILENAME testpycte.h5
+END
+DATASET ic036
+  HDF5_DATASET_NAME Ca[S2O3]i
+  FILENAME testpycte.h5
+END
+DATASET ic037
+  HDF5_DATASET_NAME Cl-i
+  FILENAME testpycte.h5
+END
+DATASET ic038
+  HDF5_DATASET_NAME KCli
+  FILENAME testpycte.h5
+END
+DATASET ic039
+  HDF5_DATASET_NAME NaCli
+  FILENAME testpycte.h5
+END
+DATASET ic040
+  HDF5_DATASET_NAME MgCl+i
+  FILENAME testpycte.h5
+END
+DATASET ic041
+  HDF5_DATASET_NAME HCli
+  FILENAME testpycte.h5
+END
+DATASET ic042
+  HDF5_DATASET_NAME SrCl+i
+  FILENAME testpycte.h5
+END
+DATASET ic043
+  HDF5_DATASET_NAME FeCl+i
+  FILENAME testpycte.h5
+END
+DATASET ic044
+  HDF5_DATASET_NAME FeCl+2i
+  FILENAME testpycte.h5
+END
+DATASET ic045
+  HDF5_DATASET_NAME FeCl2+i
+  FILENAME testpycte.h5
+END
+DATASET ic046
+  HDF5_DATASET_NAME FeCl3i
+  FILENAME testpycte.h5
+END
+DATASET ic047
+  HDF5_DATASET_NAME Cl2i
+  FILENAME testpycte.h5
+END
+DATASET ic048
+  HDF5_DATASET_NAME FeCl4-i
+  FILENAME testpycte.h5
+END
+DATASET ic049
+  HDF5_DATASET_NAME ClO4-i
+  FILENAME testpycte.h5
+END
+DATASET ic050
+  HDF5_DATASET_NAME Fe[OH]4-2i
+  FILENAME testpycte.h5
+END
+DATASET ic051
+  HDF5_DATASET_NAME Fe[OH]3-i
+  FILENAME testpycte.h5
+END
+DATASET ic052
+  HDF5_DATASET_NAME Fe[OH]2i
+  FILENAME testpycte.h5
+END
+DATASET ic053
+  HDF5_DATASET_NAME Fe[OH]+i
+  FILENAME testpycte.h5
+END
+DATASET ic054
+  HDF5_DATASET_NAME Fe+2i
+  FILENAME testpycte.h5
+END
+DATASET ic055
+  HDF5_DATASET_NAME Fe[SO4]i
+  FILENAME testpycte.h5
+END
+DATASET ic056
+  HDF5_DATASET_NAME Fe[HS]+i
+  FILENAME testpycte.h5
+END
+DATASET ic057
+  HDF5_DATASET_NAME Fe[HS]2i
+  FILENAME testpycte.h5
+END
+DATASET ic058
+  HDF5_DATASET_NAME Fe[OH]4-i
+  FILENAME testpycte.h5
+END
+DATASET ic059
+  HDF5_DATASET_NAME Fe[OH]3i
+  FILENAME testpycte.h5
+END
+DATASET ic060
+  HDF5_DATASET_NAME Fe[OH]2+i
+  FILENAME testpycte.h5
+END
+DATASET ic061
+  HDF5_DATASET_NAME Fe[OH]+2i
+  FILENAME testpycte.h5
+END
+DATASET ic062
+  HDF5_DATASET_NAME Fe[H3SiO4]+2i
+  FILENAME testpycte.h5
+END
+DATASET ic063
+  HDF5_DATASET_NAME Fe+3i
+  FILENAME testpycte.h5
+END
+DATASET ic064
+  HDF5_DATASET_NAME Fe[SO4]+i
+  FILENAME testpycte.h5
+END
+DATASET ic065
+  HDF5_DATASET_NAME Fe[SO4]2-i
+  FILENAME testpycte.h5
+END
+DATASET ic066
+  HDF5_DATASET_NAME Fe2[OH]2+4i
+  FILENAME testpycte.h5
+END
+DATASET ic067
+  HDF5_DATASET_NAME Fe3[OH]4+5i
+  FILENAME testpycte.h5
+END
+DATASET ic068
+  HDF5_DATASET_NAME FeS2O3+i
+  FILENAME testpycte.h5
+END
+DATASET ic069
+  HDF5_DATASET_NAME H2i
+  FILENAME testpycte.h5
+END
+DATASET ic070
+  HDF5_DATASET_NAME K+i
+  FILENAME testpycte.h5
+END
+DATASET ic071
+  HDF5_DATASET_NAME K[OH]i
+  FILENAME testpycte.h5
+END
+DATASET ic072
+  HDF5_DATASET_NAME K[SO4]-i
+  FILENAME testpycte.h5
+END
+DATASET ic073
+  HDF5_DATASET_NAME Mg[OH]+i
+  FILENAME testpycte.h5
+END
+DATASET ic074
+  HDF5_DATASET_NAME Mg+2i
+  FILENAME testpycte.h5
+END
+DATASET ic075
+  HDF5_DATASET_NAME Mg[SO4]i
+  FILENAME testpycte.h5
+END
+DATASET ic076
+  HDF5_DATASET_NAME Mg[H3SiO4]+i
+  FILENAME testpycte.h5
+END
+DATASET ic077
+  HDF5_DATASET_NAME Mg4[OH]4+4i
+  FILENAME testpycte.h5
+END
+DATASET ic078
+  HDF5_DATASET_NAME Mg[S2O3]i
+  FILENAME testpycte.h5
+END
+DATASET ic079
+  HDF5_DATASET_NAME Na+i
+  FILENAME testpycte.h5
+END
+DATASET ic080
+  HDF5_DATASET_NAME Na[OH]i
+  FILENAME testpycte.h5
+END
+DATASET ic081
+  HDF5_DATASET_NAME Na[SO4]-i
+  FILENAME testpycte.h5
+END
+DATASET ic082
+  HDF5_DATASET_NAME Na[S2O3]-i
+  FILENAME testpycte.h5
+END
+DATASET ic083
+  HDF5_DATASET_NAME O2i
+  FILENAME testpycte.h5
+END
+DATASET ic084
+  HDF5_DATASET_NAME HS-i
+  FILENAME testpycte.h5
+END
+DATASET ic085
+  HDF5_DATASET_NAME S-2i
+  FILENAME testpycte.h5
+END
+DATASET ic086
+  HDF5_DATASET_NAME H2Si
+  FILENAME testpycte.h5
+END
+DATASET ic087
+  HDF5_DATASET_NAME S2-2i
+  FILENAME testpycte.h5
+END
+DATASET ic088
+  HDF5_DATASET_NAME S3-2i
+  FILENAME testpycte.h5
+END
+DATASET ic089
+  HDF5_DATASET_NAME S4-2i
+  FILENAME testpycte.h5
+END
+DATASET ic090
+  HDF5_DATASET_NAME S5-2i
+  FILENAME testpycte.h5
+END
+DATASET ic091
+  HDF5_DATASET_NAME S2O3-2i
+  FILENAME testpycte.h5
+END
+DATASET ic092
+  HDF5_DATASET_NAME H[S2O3]-i
+  FILENAME testpycte.h5
+END
+DATASET ic093
+  HDF5_DATASET_NAME Sr[S2O3]i
+  FILENAME testpycte.h5
+END
+DATASET ic094
+  HDF5_DATASET_NAME H2[S2O3]i
+  FILENAME testpycte.h5
+END
+DATASET ic095
+  HDF5_DATASET_NAME S2O4-2i
+  FILENAME testpycte.h5
+END
+DATASET ic096
+  HDF5_DATASET_NAME HS2O4-i
+  FILENAME testpycte.h5
+END
+DATASET ic097
+  HDF5_DATASET_NAME H2S2O4i
+  FILENAME testpycte.h5
+END
+DATASET ic098
+  HDF5_DATASET_NAME SO3-2i
+  FILENAME testpycte.h5
+END
+DATASET ic099
+  HDF5_DATASET_NAME H[SO3]-i
+  FILENAME testpycte.h5
+END
+DATASET ic100
+  HDF5_DATASET_NAME SO2i
+  FILENAME testpycte.h5
+END
+DATASET ic101
+  HDF5_DATASET_NAME H2[SO3]i
+  FILENAME testpycte.h5
+END
+DATASET ic102
+  HDF5_DATASET_NAME S2O5-2i
+  FILENAME testpycte.h5
+END
+DATASET ic103
+  HDF5_DATASET_NAME S3O6-2i
+  FILENAME testpycte.h5
+END
+DATASET ic104
+  HDF5_DATASET_NAME S4O6-2i
+  FILENAME testpycte.h5
+END
+DATASET ic105
+  HDF5_DATASET_NAME S5O6-2i
+  FILENAME testpycte.h5
+END
+DATASET ic106
+  HDF5_DATASET_NAME SO4-2i
+  FILENAME testpycte.h5
+END
+DATASET ic107
+  HDF5_DATASET_NAME H[SO4]-i
+  FILENAME testpycte.h5
+END
+DATASET ic108
+  HDF5_DATASET_NAME Sr[SO4]i
+  FILENAME testpycte.h5
+END
+DATASET ic109
+  HDF5_DATASET_NAME HSO5-i
+  FILENAME testpycte.h5
+END
+DATASET ic110
+  HDF5_DATASET_NAME S2O8-2i
+  FILENAME testpycte.h5
+END
+DATASET ic111
+  HDF5_DATASET_NAME H2[SiO4]-2i
+  FILENAME testpycte.h5
+END
+DATASET ic112
+  HDF5_DATASET_NAME H3[SiO4]-i
+  FILENAME testpycte.h5
+END
+DATASET ic113
+  HDF5_DATASET_NAME H4[SiO4]i
+  FILENAME testpycte.h5
+END
+DATASET ic114
+  HDF5_DATASET_NAME Si2O3[OH]4-2i
+  FILENAME testpycte.h5
+END
+DATASET ic115
+  HDF5_DATASET_NAME Si2O2[OH]5-i
+  FILENAME testpycte.h5
+END
+DATASET ic116
+  HDF5_DATASET_NAME Si3O6[OH]3-3i
+  FILENAME testpycte.h5
+END
+DATASET ic117
+  HDF5_DATASET_NAME Si3O5[OH]5-3i
+  FILENAME testpycte.h5
+END
+DATASET ic118
+  HDF5_DATASET_NAME Si4O7[OH]6-4i
+  FILENAME testpycte.h5
+END
+DATASET ic119
+  HDF5_DATASET_NAME Si4O8[OH]4-4i
+  FILENAME testpycte.h5
+END
+DATASET ic120
+  HDF5_DATASET_NAME Si4O6[OH]6-2i
+  FILENAME testpycte.h5
+END
+DATASET ic121
+  HDF5_DATASET_NAME Si6O15-6i
+  FILENAME testpycte.h5
+END
+DATASET ic122
+  HDF5_DATASET_NAME Sr+2i
+  FILENAME testpycte.h5
+END
+DATASET ic123
+  HDF5_DATASET_NAME Sr[OH]+i
+  FILENAME testpycte.h5
+END
+CONSTRAINT Clay
+  CONCENTRATIONS
+    OH-pycte           1.398e-07 T
+    H+pycte            1.129e-07 T
+    H2Opycte           55.51 T
+    Al[OH]4-pycte      6.984e-08 T
+    NaAl[OH]4pycte     2.916e-10 T
+    Al[OH]3pycte       1.383e-08 T
+    Al[OH]2+pycte      1.102e-09 T
+    Al[OH]+2pycte      8.409e-11 T
+    AlH3SiO4+2pycte    5.724e-12 T
+    Al+3pycte          2.121e-12 T
+    Al[SO4]+pycte      1.533e-12 T
+    CH4pycte           3.371e-17 T
+    CH3-pycte          1e-40 T
+    Na[CO3]-pycte      9.85e-07 T
+    CO3-2pycte         3.42e-06 T
+    CaCO3pycte         5.397e-06 T
+    HCO3-pycte         0.0033 T
+    Na[HCO3]pycte      4.459e-05 T
+    Ca[HCO3]+pycte     0.0001006 T
+    Mg[CO3]pycte       2.1e-06 T
+    CO2pycte           0.000519 T
+    Mg[HCO3]+pycte     5.926e-05 T
+    Sr[CO3]pycte       6.797e-08 T
+    Fe[OH]CO3pycte     1.846e-09 T
+    FeCO3pycte         3.821e-06 T
+    Fe[CO3]2-2pycte    7.836e-10 T
+    Sr[HCO3]+pycte     3.917e-06 T
+    Fe[CO3]3-3pycte    4.963e-14 T
+    COpycte            1.062e-17 T
+    Ca[OH]+pycte       5.621e-09 T
+    Ca+2pycte          0.00606 T
+    Ca[SO4]pycte       0.001486 T
+    Ca[H3SiO4]+pycte   9.178e-09 T
+    CaCl+pycte         5.053e-05 T
+    CaCl2pycte         5.7e-07 T
+    Ca[S2O3]pycte      5.483e-17 T
+    Cl-pycte           0.04067 T
+    KClpycte           3.958e-06 T
+    NaClpycte          0.000309 T
+    MgCl+pycte         0.0001491 T
+    HClpycte           5.561e-10 T
+    SrCl+pycte         5.416e-06 T
+    FeCl+pycte         6.216e-06 T
+    FeCl+2pycte        6.611e-21 T
+    FeCl2+pycte        5.387e-22 T
+    FeCl3pycte         8.584e-25 T
+    Cl2pycte           1e-40 T
+    FeCl4-pycte        3.555e-28 T
+    ClO4-pycte         1e-40 T
+    Fe[OH]4-2pycte     2.796e-23 T
+    Fe[OH]3-pycte      3.818e-18 T
+    Fe[OH]2pycte       2.682e-12 T
+    Fe[OH]+pycte       1.202e-07 T
+    Fe+2pycte          3.824e-05 T
+    Fe[SO4]pycte       1.265e-05 T
+    Fe[HS]+pycte       2.074e-11 T
+    Fe[HS]2pycte       1.029e-19 T
+    Fe[OH]4-pycte      1.191e-14 T
+    Fe[OH]3pycte       9.172e-13 T
+    Fe[OH]2+pycte      6.079e-12 T
+    Fe[OH]+2pycte      4.859e-16 T
+    Fe[H3SiO4]+2pycte  2.881e-17 T
+    Fe+3pycte          1.943e-20 T
+    Fe[SO4]+pycte      1.688e-19 T
+    Fe[SO4]2-pycte     4.821e-20 T
+    Fe2[OH]2+4pycte    4.463e-29 T
+    Fe3[OH]4+5pycte    3.548e-38 T
+    FeS2O3+pycte       2.538e-32 T
+    H2pycte            2.006e-12 T
+    K+pycte            0.0004955 T
+    K[OH]pycte         1.492e-11 T
+    K[SO4]-pycte       1.15e-05 T
+    Mg[OH]+pycte       4.784e-08 T
+    Mg+2pycte          0.004097 T
+    Mg[SO4]pycte       0.0008356 T
+    Mg[H3SiO4]+pycte   1.103e-08 T
+    Mg4[OH]4+4pycte    7.655e-22 T
+    Mg[S2O3]pycte      1.094e-16 T
+    Na+pycte           0.03869 T
+    Na[OH]pycte        5.974e-10 T
+    Na[SO4]-pycte      0.001031 T
+    Na[S2O3]-pycte     1.623e-16 T
+    O2pycte            1e-40 T
+    HS-pycte           6.203e-11 T
+    S-2pycte           1.092e-20 T
+    H2Spycte           4.25e-11 T
+    S2-2pycte          7.146e-23 T
+    S3-2pycte          1.381e-27 T
+    S4-2pycte          2.118e-33 T
+    S5-2pycte          1.959e-39 T
+    S2O3-2pycte        2.576e-15 T
+    H[S2O3]-pycte      6.101e-21 T
+    Sr[S2O3]pycte      8.693e-18 T
+    H2[S2O3]pycte      1.703e-27 T
+    S2O4-2pycte        1.412e-34 T
+    HS2O4-pycte        2.015e-39 T
+    H2S2O4pycte        1e-40 T
+    SO3-2pycte         4.518e-15 T
+    H[SO3]-pycte       3.016e-15 T
+    SO2pycte           1.535e-20 T
+    H2[SO3]pycte       1.532e-20 T
+    S2O5-2pycte        4.665e-31 T
+    S3O6-2pycte        1e-40 T
+    S4O6-2pycte        1.317e-36 T
+    S5O6-2pycte        1e-40 T
+    SO4-2pycte         0.007654 T
+    H[SO4]-pycte       3.299e-08 T
+    Sr[SO4]pycte       4.701e-05 T
+    HSO5-pycte         1e-40 T
+    S2O8-2pycte        1e-40 T
+    H2[SiO4]-2pycte    4.112e-13 T
+    H3[SiO4]-pycte     3.703e-07 T
+    H4[SiO4]pycte      0.0001796 T
+    Si2O3[OH]4-2pycte  4.14e-13 T
+    Si2O2[OH]5-pycte   1.484e-09 T
+    Si3O6[OH]3-3pycte  3.352e-19 T
+    Si3O5[OH]5-3pycte  2.658e-19 T
+    Si4O7[OH]6-4pycte  5.386e-25 T
+    Si4O8[OH]4-4pycte  4.286e-25 T
+    Si4O6[OH]6-2pycte  8.783e-17 T
+    Si6O15-6pycte      4.419e-39 T
+    Sr+2pycte          0.0001962 T
+    Sr[OH]+pycte       5.623e-11 T
+  /
+END
+END_SUBSURFACE

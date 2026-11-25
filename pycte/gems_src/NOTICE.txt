@@ -1,0 +1,27 @@
+GEMS3K and xGEMS (Gibbs energy minimisation chemical solver of the GEMS team, PSI / ETH Zurich), with their pybind11
+interface (PyxGEMS), built with pycte as the extension module pycte.PyxGEMS (see setup.py at the root of pycte).
+
+- GEMS3K/, simdjson/ : GEMS3K 4.6.2, https://github.com/gemshub/GEMS3K, tag v4.6.2 (commit b77c39c), folders GEMS3K/
+  and simdjson/. Copyright (C) the GEMS Development Team (D. Kulik, S. Dmytriieva, G.D. Miron, A. Leal et al.).
+  GNU Lesser General Public License, version 3 or later (COPYING.LESSER, which supplements COPYING).
+  simdjson/ is the simdjson single-header library bundled with GEMS3K (Apache License 2.0 or MIT, at your option;
+  simdjson.h also contains code under the Boost Software License 1.0).
+- xGEMS/, python/ : xGEMS 2.1.2, https://github.com/gemshub/xGEMS, tag v2.1.2 (commit 7ee3d4e), folders xGEMS/ and
+  python/src/xgems/. Copyright (C) 2018-2025 Allan Leal, Dmitrii Kulik, G.D. Miron, S. Dmytriieva.
+  GNU General Public License, version 3 or later (COPYING).
+- include/eigen3/Eigen : Eigen 3.4.0, https://gitlab.com/libeigen/eigen, tag 3.4.0, folder Eigen/ (header-only).
+  Mozilla Public License 2.0 (include/eigen3/COPYING.MPL2).
+- include/spdlog : spdlog 1.16.0, https://github.com/gabime/spdlog, tag v1.16.0, folder include/spdlog/ (header-only),
+  with its bundled fmt 12.0.0. MIT License (include/spdlog/LICENSE, include/spdlog/fmt/bundled/fmt.license.rst).
+
+Build: without ThermoFun (NO_THERMOFUN; xGEMS and GEMS3K CMake option USE_THERMOFUN=OFF): the standard thermodynamic
+properties are interpolated in the T/P grid of the -dch.dat file, as written by GEMS-Selektor; ThermoFun and
+ChemicalFun are then not needed. Same definitions as the xGEMS CMake build: NODEARRAYLEVEL, IPMGEMPLUGIN. spdlog and
+fmt are used header-only: the module needs no fmt.dll / spdlog.dll.
+
+The sources are unchanged. Not included: GEMS3K platform/ folders, Makefiles, tools, tests, tsolmod4rkt and node-gem;
+xGEMS demos, tests, docs and the PyxGEMS.pyi stub; Eigen unsupported/ modules, docs and tests; spdlog sources for the
+compiled mode.
+
+To rebuild pycte.PyxGEMS with another version: replace these files by the same folders of the new version and
+reinstall pycte from its sources (pip install --no-binary pycte pycte, with a C++20 compiler).

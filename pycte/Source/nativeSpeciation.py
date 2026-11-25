@@ -1,23 +1,4 @@
-"""
-nativespeciation — solveur de speciation geochimique a l'equilibre (fichier unique).
-
-Speciation aqueuse, phases minerales, phases gazeuses (fugacite imposee, bulle
-a volume fixe, bulle a pression fixe, equation d'etat de Peng-Robinson),
-echange d'ions (Gaines-Thomas) et complexation de surface non electrostatique.
-Lit directement phreeqc.dat (generation 2 ou 3) ou une base JSON maison.
-
-    from nativespeciation import Database, ChemicalSystem, Speciation
-
-En cas de resultat inattendu :
-    from nativespeciation import diagnose
-    diagnose(system, totaux, ...)          # rapport complet a copier-coller
-
-Chaque resultat porte le detail du temps de calcul dans r.timings.
-
-Seule dependance : numpy. Le fichier de base thermodynamique doit etre fourni
-par l'utilisateur ; find_database() le cherche dans le repertoire courant, a
-cote du module, ou sous la variable NATIVESPECIATION_DATABASE.
-"""
+"""Native geochemical equilibrium solver: aqueous, mineral, gas, exchange and surface speciation (phreeqc.dat or JSON)."""
 
 from __future__ import annotations
 import json
@@ -61,12 +42,12 @@ _CHARGE_RE = re.compile(r"([+-])(\d*)$")
 
 
 def _f(x: str) -> float:
-    """Flottant tolerant aux separateurs de phreeqc.dat ('1.506;')."""
+    """Float tolerant to the separators of phreeqc.dat ('1.506;')."""
     return float(x.strip().rstrip(";,").strip())
 
 
 def parse_charge(name: str) -> int:
-    """Charge d'une espece deduite de son nom ('Ca+2' -> 2, 'CO3-2' -> -2)."""
+    """Charge of a species deduced from its name ('Ca+2' -> 2, 'CO3-2' -> -2)."""
     m = _CHARGE_RE.search(name)
     if not m:
         return 0
@@ -75,30 +56,33 @@ def parse_charge(name: str) -> int:
 
 
 def split_terms(side: str) -> list[tuple[float, str]]:
-    """Decoupe un membre de reaction : '2 H+ + CO3-2' -> [(2,'H+'), (1,'CO3-2')].
-
-    On decoupe sur les '+' entoures d'espaces, pour ne pas casser les noms
-    d'especes qui contiennent eux-memes un '+' (Ca+2, NaHCO3+, ...).
-    """
+    """One side of a reaction -> [(coefficient, species)], split on whitespace."""
     terms = []
-    for chunk in re.split(r"\s+\+\s+", side.strip()):
-        chunk = chunk.strip()
-        if not chunk:
+    sign, coef = 1.0, None
+    for token in side.split():
+        if token in ("+", "-"):
+            sign = -1.0 if token == "-" else 1.0
             continue
-        m = _TERM_RE.match(chunk)
+        if token[0] in "+-":
+            sign = -1.0 if token[0] == "-" else 1.0
+            token = token[1:]
+        m = _TERM_RE.match(token)
         if not m:
-            raise ValueError(f"terme illisible : {chunk!r}")
-        coef = float(m.group(1)) if m.group(1) else 1.0
-        terms.append((coef, m.group(2).strip()))
+            try:
+                coef = (coef or 1.0) * float(token)
+            except ValueError:
+                raise ValueError(f"terme illisible : {token!r}") from None
+            continue
+        value = float(m.group(1)) if m.group(1) else 1.0
+        terms.append((sign * value * (coef if coef is not None else 1.0), m.group(2).strip()))
+        sign, coef = 1.0, None
+    if coef is not None:
+        raise ValueError(f"terme illisible : {side.strip()!r}")
     return terms
 
 
 def parse_reaction(line: str) -> dict[str, float]:
-    """'CaCO3 = Ca+2 + CO3-2' -> {'CaCO3': -1, 'Ca+2': +1, 'CO3-2': +1}.
-
-    Convention : produits positifs, reactifs negatifs, de sorte que
-    log K = somme(coef * log a).
-    """
+    """'CaCO3 = Ca+2 + CO3-2' -> {'CaCO3': -1, 'Ca+2': 1, 'CO3-2': 1} (products positive)."""
     lhs, rhs = line.split("=", 1)
     stoich: dict[str, float] = {}
     for coef, name in split_terms(lhs):
@@ -109,49 +93,37 @@ def parse_reaction(line: str) -> dict[str, float]:
 
 
 def find_database(name: str = "phreeqc.dat") -> str:
-    """Localise un fichier de base thermodynamique.
-
-    Cherche, dans l'ordre : le chemin tel quel, la variable d'environnement
-    NATIVESPECIATION_DATABASE, le repertoire courant, celui de ce module.
-    Aucune dependance exterieure : le fichier doit etre fourni par vous.
-    """
+    """Database path: as given, NATIVESPECIATION_DATABASE, current folder, then module folder."""
     import os
 
-    candidats = [Path(name)]
+    candidates = [Path(name)]
     env = os.environ.get("NATIVESPECIATION_DATABASE")
     if env:
-        candidats.append(Path(env))
-        candidats.append(Path(env) / name)
-    candidats.append(Path.cwd() / name)
-    candidats.append(Path(__file__).resolve().parent / name)
-    for c in candidats:
+        candidates.append(Path(env))
+        candidates.append(Path(env) / name)
+    candidates.append(Path.cwd() / name)
+    candidates.append(Path(__file__).resolve().parent / name)
+    for c in candidates:
         if c.is_file():
             return str(c.resolve())
     raise FileNotFoundError(
-        f"base thermodynamique introuvable : {name}\nCherchee dans :\n  "
-        + "\n  ".join(str(c) for c in candidats)
-        + "\nIndiquer un chemin complet, ou definir la variable "
-          "d'environnement NATIVESPECIATION_DATABASE.")
+        f"thermodynamic database not found : {name}\nLooked in :\n  "
+        + "\n  ".join(str(c) for c in candidates)
+        + "\nGive a full path, or set the environment variable NATIVESPECIATION_DATABASE.")
 
 
 def default_phreeqc_database(name: str = "phreeqc.dat") -> str:
-    """Ancien nom de find_database, conserve pour les scripts existants.
-
-    Jusqu'a la version 2 ce nom allait chercher le fichier dans l'installation
-    de phreeqpython. Cette dependance a ete retiree : la fonction cherche
-    desormais le fichier comme find_database.
-    """
+    """Former name of find_database."""
     warnings.warn(
-        "default_phreeqc_database est remplace par find_database ; il ne va "
-        "plus chercher le fichier dans phreeqpython mais dans le repertoire "
-        "courant, a cote du module, ou sous NATIVESPECIATION_DATABASE.",
+        "default_phreeqc_database is replaced by find_database (current folder, module folder or "
+        "NATIVESPECIATION_DATABASE).",
         DeprecationWarning, stacklevel=2)
     return find_database(name)
 
 
 @dataclass
 class Species:
-    """Espece secondaire (aqueuse, d'echange ou de surface)."""
+    """Secondary species (aqueous, exchange or surface)."""
     name: str
     stoich: dict[str, float]
     log_k: float = 0.0
@@ -168,13 +140,7 @@ class Species:
 
 @dataclass
 class Phase:
-    """Phase minerale ou gazeuse (reaction de dissolution).
-
-    ATTENTION : stoich ne contient PAS le solide/gaz lui-meme, seulement le
-    second membre. C'est indispensable pour les gaz, dont la formule porte le
-    meme nom que l'espece aqueuse correspondante ('CO2 = CO2') : les deux
-    s'annuleraient dans un dictionnaire commun.
-    """
+    """Mineral or gas phase; stoich holds the right-hand side of its dissolution only."""
     name: str
     solid: str
     stoich: dict[str, float]
@@ -192,14 +158,14 @@ class Phase:
 
 @dataclass
 class Master:
-    """Espece maitresse associee a un element (ou a un site d'echange)."""
+    """Master species associated with an element (or with an exchange site)."""
     element: str
     species: str
     kind: str = "aq"
 
 
 def logk_at_T(log_k, delta_h, analytic, tk: float) -> float:
-    """log K a la temperature tk (K) : expression analytique sinon van't Hoff."""
+    """log K at temperature tk (K): analytical expression, otherwise van't Hoff."""
     if analytic:
         a = list(analytic) + [0.0] * (6 - len(analytic))
         if any(a):
@@ -243,8 +209,7 @@ class Database:
             json.dump(raw, f, indent=1)
 
     def subset(self, elements, phases=()) -> "Database":
-        """Extrait une base reduite aux elements demandes (utile pour figer
-        une petite base maison a partir de phreeqc.dat)."""
+        """Database reduced to the requested elements."""
         keep_master = {e: m for e, m in self.master.items() if e in elements}
         masters = {m.species for m in keep_master.values()} | {"H2O", "H+", "e-"}
         db = Database(master=keep_master)
@@ -352,33 +317,31 @@ def _parse_phreeqc(path: str) -> Database:
 
 
 def _check_logk(db: "Database", path) -> None:
-    """Detecte un format d'option non reconnu : une reaction non triviale sans
-    log K explicite est presque toujours le signe d'une ligne mal lue."""
-    muets = [s.name for s in db.species.values()
+    """Warns about reactions without a readable log K (misread lines)."""
+    unreadable = [s.name for s in db.species.values()
              if not s.explicit_logk
              and len({k for k, v in s.stoich.items() if abs(v) > 1e-12}) > 1]
-    muets += [f.name for f in db.phases.values() if not f.explicit_logk]
-    if muets:
+    unreadable += [f.name for f in db.phases.values() if not f.explicit_logk]
+    if unreadable:
         warnings.warn(
-            f"{len(muets)} reactions sans log K lisible dans {path} "
-            f"(ex. : {', '.join(muets[:5])}). Leur log K est reste a 0, ce qui "
-            f"fausserait completement la speciation. Format de mot-cle non "
-            f"reconnu : ouvrir le fichier et verifier l'ecriture des lignes "
-            f"log_k / analytic.", stacklevel=3)
+            f"{len(unreadable)} reactions without a readable log K in {path} "
+            f"(e.g. {', '.join(unreadable[:5])}) : their log K stays 0, which would make the speciation wrong ; "
+            f"check the log_k / analytic lines of the file.", stacklevel=3)
 
 
-A25, B25 = 0.51002, 0.32849
+# Debye-Huckel A and B at 25 C, values of PHREEQC 3.8.6 (DH_A, DH_B with phreeqc.dat)
+A25, B25 = 0.5100247894269, 0.328490633992
 
 
 def water_density(tk: float) -> float:
-    """Masse volumique de l'eau (g/cm3), correlation de Kell."""
+    """Density of water (g/cm3), Kell correlation."""
     t = tk - 273.15
     return (1.0 - (t - 3.9863) ** 2 * (t + 288.9414)
             / (508929.2 * (t + 68.12963)))
 
 
 def water_permittivity(tk: float) -> float:
-    """Permittivite relative de l'eau."""
+    """Relative permittivity of water."""
     return 2727.586 + 0.6224107 * tk - 466.9151 * math.log(tk) - 52000.87 / tk
 
 
@@ -393,7 +356,7 @@ _A0, _B0 = _raw_AB(298.15)
 
 
 def dh_constants(tk: float = 298.15) -> tuple[float, float]:
-    """Constantes A et B de Debye-Huckel a la temperature tk (K)."""
+    """Debye-Huckel A and B constants at temperature tk (K)."""
     a, b = _raw_AB(tk)
     return a * A25 / _A0, b * B25 / _B0
 
@@ -404,36 +367,42 @@ def ionic_strength(conc: np.ndarray, z: np.ndarray) -> float:
 
 def log_gamma(I: float, z: np.ndarray, dh_a: np.ndarray, dh_b: np.ndarray,
               tk: float = 298.15) -> np.ndarray:
-    """log10 des coefficients d'activite (vectorise sur les especes).
+    """log10 activity coefficients, vectorised over species (and nodes when I is an array)."""
+    return _log_gamma_terms(I, _log_gamma_constants(z, dh_a, dh_b, tk))
 
-    dh_a vaut NaN pour les especes sans parametres '-gamma'.
-    I peut etre un tableau (une force ionique par noeud, forme (N,)) : le
-    resultat est alors de forme (N, nombre d'especes).
-    """
+
+def _log_gamma_constants(z, dh_a, dh_b, tk):
+    """Terms of log_gamma independent of I (computed once per system)."""
     A, B = dh_constants(tk)
+    has_dh = ~np.isnan(dh_a)
+    a = np.where(has_dh, np.nan_to_num(dh_a), 0.0)
+    b = np.where(has_dh, np.nan_to_num(dh_b), 0.0)
+    return -A * z ** 2, z == 0.0, has_dh, B * a, b
+
+
+def _log_gamma_terms(I, constants):
+    minus_Az2, neutral, has_dh, Ba, b = constants
+    if type(I) is float:
+        sq = math.sqrt(max(I, 0.0))
+        davies = minus_Az2 * (sq / (1.0 + sq) - 0.3 * I)
+        lg = np.where(neutral, 0.1 * I, davies)
+        wateq = minus_Az2 * sq / (1.0 + Ba * sq) + b * I
+        return np.where(has_dh, wateq, lg)
     I = np.asarray(I, dtype=float)
     if I.ndim:
         I = I[..., None]
     sq = np.sqrt(np.maximum(I, 0.0))
-    has_dh = ~np.isnan(dh_a)
 
-    davies = -A * z ** 2 * (sq / (1.0 + sq) - 0.3 * I)
-    lg = np.where(z == 0.0, 0.1 * I, davies)
+    davies = minus_Az2 * (sq / (1.0 + sq) - 0.3 * I)
+    lg = np.where(neutral, 0.1 * I, davies)
 
-    a = np.where(has_dh, np.nan_to_num(dh_a), 0.0)
-    b = np.where(has_dh, np.nan_to_num(dh_b), 0.0)
-    wateq = -A * z ** 2 * sq / (1.0 + B * a * sq) + b * I
+    wateq = minus_Az2 * sq / (1.0 + Ba * sq) + b * I
     return np.where(has_dh, wateq, lg)
 
 
 def water_activity(molalities: np.ndarray) -> float:
-    """Activite de l'eau, approximation osmotique utilisee par PHREEQC.
-
-    Bornee par le bas : sur un itere transitoire aberrant la somme des
-    molalites peut depasser 1/0.017 et rendre l'activite negative, ce qui
-    propagerait un NaN par son logarithme.
-    """
-    return max(1.0 - 0.017 * float(np.sum(molalities)), 1e-3)
+    """Water activity (PHREEQC osmotic approximation), bounded below."""
+    return max(1.0 - 0.017 * float(np.add.reduce(molalities, axis=None)), 1e-3)
 
 
 R_ATM = 0.0820573660809596
@@ -442,11 +411,7 @@ SQ2 = math.sqrt(2.0)
 
 def pr_fugacity(y: np.ndarray, P: float, tk: float, tc: np.ndarray,
                 pc: np.ndarray, omega: np.ndarray) -> tuple[np.ndarray, float]:
-    """Coefficients de fugacite (log10) et facteur de compressibilite.
-
-    y  : fractions molaires, P : pression totale (atm), tk : temperature (K).
-    Les gaz sans constantes critiques sont traites comme parfaits.
-    """
+    """Peng-Robinson log10 fugacity coefficients and compressibility factor."""
     n = len(y)
     if n == 0 or P <= 0:
         return np.zeros(n), 1.0
@@ -482,21 +447,12 @@ def pr_fugacity(y: np.ndarray, P: float, tk: float, tc: np.ndarray,
 
 class ChemicalSystem:
     def __init__(self, db: Database, elements, minerals=(), gases=(),
-                 exchanger=None, surfaces=None, temperature: float = 25.0,
+                 exchanger=None, surfaces=None, temperature: float = 298.15,
                  pe: float = 4.0, redox: bool = False):
-        """
-        elements   : liste d'elements ('Ca', 'C', 'Na', 'Cl', ...)
-        minerals   : liste de phases de la base ('Calcite', 'Gypsum', ...)
-        gases      : liste de gaz de la base ('CO2(g)', 'O2(g)', ...) ; le mode
-                     (fugacite imposee, volume fixe, pression fixe) se choisit
-                     dans solve()
-        exchanger  : nom de l'echangeur ('X') ou None
-        surfaces   : liste de sites de surface ('Hfo_w', 'Hfo_s') ou None
-        redox      : si False, toutes les especes faisant intervenir e- sont
-                     ecartees (pas de couples redox)
-        """
+        """System of `elements` with minerals, gases, exchanger and surfaces; element 'E' makes e- a component.
+        temperature in K."""
         self.db = db
-        self.tk = temperature + 273.15
+        self.tk = float(temperature)
         self.pe = pe
         self.redox = redox
 
@@ -507,7 +463,7 @@ class ChemicalSystem:
             elif el in db.species:
                 sp = el
             else:
-                raise KeyError(f"element inconnu dans la base : {el}")
+                raise KeyError(f"element unknown in the database : {el}")
             if sp not in masters and sp != "H2O":
                 masters.append(sp)
         if "H+" not in masters:
@@ -542,12 +498,14 @@ class ChemicalSystem:
             stoich, lk = res
             if not set(stoich) <= allowed:
                 continue
-            if not redox and abs(stoich.get("e-", 0.0)) > 1e-12:
+            if (not redox and "e-" not in self.index
+                    and abs(stoich.get("e-", 0.0)) > 1e-12):
                 continue
             names.append(name)
             kinds.append(sp.kind)
             rows.append([stoich.get(m, 0.0) for m in masters])
-            free_rows.append([stoich.get(f, 0.0) for f in self.free])
+            free_rows.append([0.0 if f in self.index else stoich.get(f, 0.0)
+                              for f in self.free])
             logk.append(lk)
 
         self.species = names
@@ -602,31 +560,24 @@ class ChemicalSystem:
         self.logk_gas = np.array(glogk, dtype=float)
 
     def phase_data(self, name: str):
-        """Vecteur stoechiometrique et logK effectif d'une phase.
-
-        La reaction est ecrite en dissolution (le solide est a gauche) : le
-        vecteur retourne donne aussi bien la composition du solide en
-        composants que la stoechiometrie du produit ionique.
-        """
+        """Stoichiometric vector (dissolution) and effective log K of a phase."""
         ph = self.db.phases[name]
         allowed = set(self.components) | set(self.free)
         stoich, lk = {}, ph.logk(self.tk)
         for r, coef in ph.stoich.items():
             res = self._expand(r)
             if res is None or not set(res[0]) <= allowed:
-                raise ValueError(f"phase {name} hors du systeme choisi ({r})")
+                raise ValueError(f"phase {name} outside the chosen system ({r})")
             for k, v in res[0].items():
                 stoich[k] = stoich.get(k, 0.0) + coef * v
             lk -= coef * res[1]
         vec = [stoich.get(x, 0.0) for x in self.components]
-        vfree = [stoich.get(f, 0.0) for f in self.free]
+        vfree = [0.0 if f in self.index else stoich.get(f, 0.0)
+                 for f in self.free]
         return vec, vfree, lk
 
     def _expand(self, name: str):
-        """Exprime l'espece 'name' dans la base des especes maitresses.
-
-        Retourne (stoichiometrie sur les maitresses, logK cumule) ou None.
-        """
+        """Species `name` on the master species -> (stoichiometry, cumulated log K) or None."""
         if name in self._memo:
             return self._memo[name]
         if name in self.components or name in self.free:
@@ -656,12 +607,12 @@ class ChemicalSystem:
         return res
 
     def summary(self) -> str:
-        return (f"{self.nc} composants : {', '.join(self.components)}\n"
-                f"{len(self.species)} especes "
-                f"({int(self.is_aq.sum())} aq, {int(self.is_exch.sum())} echange, "
+        return (f"{self.nc} components : {', '.join(self.components)}\n"
+                f"{len(self.species)} species "
+                f"({int(self.is_aq.sum())} aq, {int(self.is_exch.sum())} exchange, "
                 f"{int(self.is_surf.sum())} surface)\n"
-                f"{len(self.minerals)} mineraux : {', '.join(self.minerals) or '-'}\n"
-                f"{len(self.gases)} gaz : {', '.join(self.gases) or '-'}")
+                f"{len(self.minerals)} minerals : {', '.join(self.minerals) or '-'}\n"
+                f"{len(self.gases)} gases : {', '.join(self.gases) or '-'}")
 
 
 def _g(v, default=float("nan")):
@@ -670,6 +621,7 @@ def _g(v, default=float("nan")):
 
 LN10 = np.log(10.0)
 R_GAS = R_ATM
+H2O_PER_KG = 55.50868
 
 __version__ = "3.1"
 
@@ -680,7 +632,7 @@ class ConvergenceError(RuntimeError):
 
 @dataclass
 class Timings:
-    """Decomposition du temps de calcul d'une resolution (secondes)."""
+    """Breakdown of the computation time of one solve (seconds)."""
     total: float = 0.0
     setup: float = 0.0
     assembly: float = 0.0
@@ -694,14 +646,14 @@ class Timings:
 
     @property
     def numeric(self) -> float:
-        """Temps de calcul pur : assemblage + algebre lineaire + activites."""
+        """Pure computation time: assembly + linear algebra + activities."""
         return self.assembly + self.linalg + self.activity
 
     def __str__(self) -> str:
-        return (f"total {1e3*self.total:7.3f} ms | pur {1e3*self.numeric:7.3f} ms "
-                f"(assemblage {1e3*self.assembly:6.3f}, lineaire {1e3*self.linalg:6.3f}, "
-                f"activites {1e3*self.activity:6.3f}) | {self.newton} iterations, "
-                f"{self.solves} systemes {self.size}x{self.size}")
+        return (f"total {1e3*self.total:7.3f} ms | numeric {1e3*self.numeric:7.3f} ms "
+                f"(assembly {1e3*self.assembly:6.3f}, linear {1e3*self.linalg:6.3f}, "
+                f"activities {1e3*self.activity:6.3f}) | {self.newton} iterations, "
+                f"{self.solves} systems {self.size}x{self.size}")
 
 
 @dataclass
@@ -719,6 +671,7 @@ class Result:
     error: float = 0.0
     gas_volume: float = 0.0
     gas_z: float = 1.0
+    water_mass: float = 1.0
     timings: Timings = field(default_factory=Timings, repr=False)
 
     @property
@@ -728,6 +681,11 @@ class Result:
     @property
     def pH(self) -> float:
         return -self.u[self.system.index["H+"]]
+
+    @property
+    def pe(self) -> float:
+        j = self.system.index.get("e-")
+        return self.system.pe if j is None else -float(self.u[j])
 
     def molality(self, name: str) -> float:
         return float(self.c[self.system.species.index(name)])
@@ -743,7 +701,7 @@ class Result:
                 zip(s.species, self.c, s.is_exch | s.is_surf) if ok and cc > threshold}
 
     def total(self, element: str) -> float:
-        """Total dissous d'un composant (mol/kgw), sorption exclue."""
+        """Dissolved total of a component (mol/kgw), sorption excluded."""
         s = self.system
         j = s.index[s.db.master[element].species if element in s.db.master else element]
         return float(np.sum(s.nu[s.is_aq, j] * self.c[s.is_aq]))
@@ -753,18 +711,14 @@ class Result:
         return float(self.c[i] * 10.0 ** self.lg[i])
 
     def si(self, phase: str) -> float:
-        """Indice de saturation log10(IAP/K). Pour un gaz, c'est log10 P."""
+        """Saturation index log10(IAP/K). For a gas, it is log10 P."""
         s = self.system
         vec, vfree, lk = s.phase_data(phase)
         la_free = np.array([np.log10(self.a_h2o), -s.pe])
         return float(np.dot(vec, self.u) + np.dot(vfree, la_free) - lk)
 
     def charge_balance(self) -> float:
-        """Desequilibre de charge de la *solution* seule (mol/kgw).
-
-        Il est nul en l'absence d'echangeur ou de surface ; sinon il est
-        compense par la charge portee par le solide (couche diffuse ignoree
-        dans le modele non electrostatique)."""
+        """Charge imbalance of the solution alone (mol/kgw)."""
         s = self.system
         return float(np.sum(s.z[s.is_aq] * self.c[s.is_aq]))
 
@@ -775,14 +729,7 @@ class Speciation:
                  max_newton: int = 200, max_outer: int = 60,
                  max_step: float = 1.0, timing: bool = True, eos: str = "pr",
                  inner_gamma: bool = True):
-        """
-        tol       : residu relatif vise sur les bilans de matiere
-        tol_si    : residu vise sur les indices de saturation (unites log10)
-        tol_stall : residu au-dela duquel une stagnation est une vraie erreur.
-                    Entre tol et tol_stall, la stagnation est due a la
-                    compensation entre termes de signes opposes (la precision
-                    machine est atteinte) et la solution est acceptee.
-        """
+        """Solver tolerances: mass balances (tol), saturation indices (tol_si), accepted stall (tol_stall)."""
         self.s = system
         self.tol = tol
         self.tol_si = tol_si
@@ -793,39 +740,30 @@ class Speciation:
         self.timing = timing
         self.eos = eos
         self.inner_gamma = inner_gamma
+        self._gamma_constants = None
+        self._abs_nu = np.abs(system.nu)
+        self._nu2 = system.nu * system.nu
+        self._z2 = system.z * system.z
+        self._nu_x_floor = np.maximum(system.nu_x, 1e-30)
+        self._lg_x_offset = (None, None)
 
     def solve(self, totals: dict, pH: float | None = None,
               pH_reagent: str | None = None, cec: float = 0.0,
               sites: dict | None = None, minerals: dict | None = None,
               fugacities: dict | None = None, gas_initial: dict | None = None,
               gas_volume: float | None = None, gas_pressure: float | None = None,
-              u0: np.ndarray | None = None) -> Result:
-        """
-        totals      : totaux du systeme par element (mol/kgw), fractions sorbee
-                      et solide comprises
-        pH          : impose le pH ; sinon il decoule de l'electroneutralite
-        pH_reagent  : composant qui accompagne l'acide ou la base servant a
-                      imposer le pH ('Cl' pour HCl, 'Na' pour NaOH). Son total
-                      devient libre et l'electroneutralite est retablie, ce qui
-                      reproduit exactement le Fix_H+ de PHREEQC. Sans lui, le
-                      pH est impose sans contre-ion : la solution porte alors
-                      un desequilibre de charge et la force ionique differe.
-        cec         : capacite d'echange (mol de sites)
-        sites       : moles de sites de surface ({'Hfo_w': 2e-3, ...})
-        minerals    : moles de mineral initialement present ({'Calcite': 10.})
-        fugacities  : log10 des pressions partielles imposees, reservoir infini
-                      ({'CO2(g)': -3.5}) : equivalent d'un gaz place dans
-                      EQUILIBRIUM_PHASES
-        gas_volume  : volume (L) d'une bulle a volume fixe (GAS_PHASE
-                      -fixed_volume) ; la pression totale est un resultat
-        gas_pressure: pression totale (bar) d'une bulle a pression fixe
-                      (GAS_PHASE -fixed_pressure) ; le volume est un resultat
-        gas_initial : moles de gaz deja dans la bulle, ajoutees aux totaux
-        u0          : initialisation (demarrage a chaud pour le transport)
-
-        Les gaz declares dans le systeme et absents de 'fugacities' forment la
-        bulle ; sans gas_volume ni gas_pressure ils sont ignores.
-        """
+              u0: np.ndarray | None = None, charge_balance: bool = True,
+              lg0: np.ndarray | None = None, a_h2o0: float | None = None,
+              pH0: float | None = None, pe0: float | None = None,
+              water: float | None = None,
+              water_mass0: float | None = None) -> Result:
+        """Equilibrium of `totals` (mol/kgw, moles with `water`) with pH, exchange, surfaces, minerals, gases, warm start."""
+        if water is not None:
+            return self._solve_water(
+                totals, water, water_mass0, minerals,
+                dict(pH=pH, pH_reagent=pH_reagent, cec=cec, sites=sites,
+                     u0=u0, charge_balance=charge_balance, lg0=lg0,
+                     a_h2o0=a_h2o0, pH0=pH0, pe0=pe0))
         t0 = time.perf_counter() if self.timing else 0.0
         tm = Timings()
         s = self.s
@@ -835,10 +773,10 @@ class Speciation:
         fug = dict(fugacities or {})
         for g in fug:
             if g not in s.gases:
-                raise KeyError(f"gaz '{g}' absent du systeme : le declarer via "
+                raise KeyError(f"gas '{g}' not in the system : declare it with "
                                f"ChemicalSystem(..., gases=[...])")
         if gas_volume is not None and gas_pressure is not None:
-            raise ValueError("choisir gas_volume OU gas_pressure, pas les deux")
+            raise ValueError("give gas_volume or gas_pressure, not both")
         mode = ("V" if gas_volume is not None else
                 "P" if gas_pressure is not None else None)
         bubble = [g for g in s.gases if g not in fug] if mode else []
@@ -852,13 +790,12 @@ class Speciation:
             T[s.index[name]] += val
         if s.exchanger:
             if cec <= 0:
-                raise ValueError("echangeur declare mais cec nulle : passer "
-                                 "cec=<moles de sites> a solve()")
+                raise ValueError("exchanger declared but cec is 0 : give "
+                                 "cec=<moles of sites> to solve()")
             if not s.is_exch.any():
                 raise ValueError(
-                    f"echangeur '{s.exchanger}' declare mais aucune espece "
-                    f"d'echange trouvee dans la base : verifier que le bloc "
-                    f"EXCHANGE_SPECIES est bien lu")
+                    f"exchanger '{s.exchanger}' declared but no exchange species "
+                    f"found in the database : check its EXCHANGE_SPECIES block")
             T[s.index[s.db.master[s.exchanger].species]] = cec
         for site, moles in (sites or {}).items():
             T[s.index[s.db.master[site].species]] = moles
@@ -870,20 +807,22 @@ class Speciation:
         for g, moles in (gas_initial or {}).items():
             T = T + moles * s.nu_gas[s.gases.index(g)]
 
-        bad = [s.components[j] for j in range(nc) if j != jH and T[j] <= 0]
+        je = s.index.get("e-")
+        bad = [s.components[j] for j in range(nc)
+               if j != jH and j != je and T[j] <= 0]
         if bad:
-            raise ValueError(f"total nul ou negatif pour : {bad}")
+            raise ValueError(f"zero or negative total for : {bad}")
 
         fixed_pH = pH is not None
         uidx = np.array([j for j in range(nc) if not (fixed_pH and j == jH)])
         eqidx = np.array([j for j in range(nc) if not (fixed_pH and j == jH)])
         if not fixed_pH:
-            charge_row = jH
+            charge_row = jH if charge_balance else None
         elif pH_reagent is not None:
             name = (s.db.master[pH_reagent].species
                     if pH_reagent in s.db.master else pH_reagent)
             if name not in s.index:
-                raise KeyError(f"pH_reagent '{pH_reagent}' absent des composants")
+                raise KeyError(f"pH_reagent '{pH_reagent}' is not a component")
             charge_row = s.index[name]
         else:
             charge_row = None
@@ -892,13 +831,20 @@ class Speciation:
             u = u0.copy()
         else:
             u = np.clip(np.log10(np.maximum(T_sol, 1e-9)) - 0.5, -9.0, 1.0)
-            u[jH] = -7.0
+            u[jH] = -7.0 if pH0 is None else -pH0
+            if je is not None:
+                u[je] = -s.pe if pe0 is None else -pe0
             if s.exchanger:
                 jx = s.index[s.db.master[s.exchanger].species]
                 u[jx] = np.log10(max(cec, 1e-12)) - 6.0
         if fixed_pH:
             u[jH] = -pH
 
+        start = None
+        if (u0 is not None and lg0 is not None and a_h2o0 is not None
+                and len(lg0) == len(s.species) and np.all(np.isfinite(lg0))
+                and np.isfinite(a_h2o0) and a_h2o0 > 0):
+            start = (np.asarray(lg0, dtype=float), float(a_h2o0))
         u_init = u.copy()
         active = [i for i in range(len(s.minerals)) if n0[i] > 0]
         n_act = n0.copy()
@@ -917,7 +863,7 @@ class Speciation:
                     [i for i in range(len(s.minerals)) if n0[i] > 0],
                     np.zeros(len(if_)), 0.0, mode == "P" and len(ib) > 0,
                     T, uidx, eqidx, charge_row, ib, if_, target, mode,
-                    gas_volume, gas_pressure, cec, step, tm)
+                    gas_volume, gas_pressure, cec, step, tm, start)
                 break
             except ConvergenceError as exc:
                 if essai == len(steps) - 1:
@@ -927,43 +873,37 @@ class Speciation:
                                           * 10.0 ** (s.logk + s.nu @ exc.u)))
                         if cr < 1e-10 * float(np.max(np.abs(T))):
                             zr = s.z_components[jr]
-                            oppose = [n for n, z in zip(s.components,
+                            opposite = [n for n, z in zip(s.components,
                                                         s.z_components)
                                       if z * zr < 0 and n != "H+"]
                             raise ValueError(
                                 f"pH_reagent '{pH_reagent}' (charge {zr:+.0f}) "
-                                f"ne peut pas retablir l'electroneutralite a pH "
-                                f"{pH:.2f} : sa concentration s'annule, il en "
-                                f"faudrait une quantite negative. Choisir un "
-                                f"reactif de charge opposee"
-                                + (f" (par exemple {oppose[0]})" if oppose
+                                f"cannot restore electroneutrality at pH "
+                                f"{pH:.2f} : it would need a negative concentration. "
+                                f"Choose a reagent of opposite charge"
+                                + (f" (e.g. {opposite[0]})" if opposite
                                    else "") + ".") from exc
                     raise
                 tm.retries += 1
 
         q = float(np.dot(s.z_components, T))
         pH_final = -u[jH]
-        if (pH is None and (pH_final < 2.5 or pH_final > 11.5)
+        if (pH is None and charge_balance and (pH_final < 2.5 or pH_final > 11.5)
                 and abs(q) > 1e-3 * float(np.max(np.abs(T)))):
             warnings.warn(
-                f"pH {pH_final:.2f} obtenu avec un desequilibre de charge des "
-                f"totaux de {q:+.3e} eq/kgw, entierement porte par H+/OH-. "
-                f"Verifier que les totaux incluent la fraction sorbee "
-                f"(convention : total = dissous + sorbe) et que la CEC est "
-                f"compensee par des cations.", stacklevel=2)
+                f"pH {pH_final:.2f} reached with a charge imbalance of the totals of {q:+.3e} eq/kgw, carried by H+ / OH- : "
+                f"check that the totals include the sorbed fraction (total = dissolved + sorbed) and that the CEC "
+                f"is balanced by cations.", stacklevel=2)
 
         if len(s.minerals):
             la_free = np.array([np.log10(a_h2o), -s.pe])
             si = s.nu_min @ u + s.nu_min_free @ la_free - s.logk_min
-            bloquees = [s.minerals[i] for i in range(len(s.minerals))
+            blocked = [s.minerals[i] for i in range(len(s.minerals))
                         if i not in active and si[i] > 1e-6]
-            if bloquees:
+            if blocked:
                 warnings.warn(
-                    f"phases sursaturees mais absentes de l'ensemble actif : "
-                    f"{', '.join(bloquees)}. L'algorithme d'ensemble actif a "
-                    f"cycle sur ces phases (competition sur les memes elements) "
-                    f"et s'est arrete sur un compromis : le resultat n'est pas "
-                    f"un equilibre exact pour elles.", stacklevel=2)
+                    f"supersaturated phases left out of the active set : {', '.join(blocked)} (the active set cycled on "
+                    f"phases sharing elements) : the result is not an exact equilibrium for them.", stacklevel=2)
 
         c = self._concentrations(u, lg, a_h2o)
         p_all = self._pressures(u, a_h2o, np.arange(len(s.gases)), lphi)
@@ -990,16 +930,61 @@ class Speciation:
                       ionic_strength=I, a_h2o=a_h2o, iterations=it_total,
                       error=err, gas_volume=vol, gas_z=Zgas, timings=tm)
 
+    def _solve_water(self, totals, water, water_mass0, minerals, options,
+                     tol: float = 1e-12, max_iter: int = 50) -> Result:
+        """Water balance: fixed point on the water mass around solve."""
+        s = self.s
+        if len(s.gases):
+            raise ValueError("water balance not available with gases")
+        minerals = dict(minerals or {})
+        W = float(water) + sum(s.nu_min_free[i, 0] * minerals.get(m, 0.0)
+                               for i, m in enumerate(s.minerals))
+        w = (float(water_mass0) if water_mass0 and water_mass0 > 0
+             else max(float(water) / H2O_PER_KG, 1e-6))
+        options = dict(options)
+        newton = 0
+        t0 = time.perf_counter()
+        for _ in range(max_iter):
+            sites = options.get("sites")
+            r = self.solve({k: v / w for k, v in totals.items()},
+                           minerals={m: n / w for m, n in minerals.items()},
+                           **dict(options, cec=options["cec"] / w,
+                                  sites=None if sites is None else
+                                  {k: v / w for k, v in sites.items()}))
+            newton += r.timings.newton
+            n_min = np.array([r.n_min[m] for m in s.minerals])
+            bound = w * (float(s.nu_free[:, 0] @ r.c)
+                         + float(s.nu_min_free[:, 0] @ n_min))
+            w_new = (W - bound) / H2O_PER_KG
+            if not w_new > 0:
+                raise ConvergenceError(
+                    f"bilan d'eau : masse d'eau negative ({w_new:.3e} kg)")
+            if abs(w_new - w) <= tol * w:
+                break
+            w = w_new
+            options.update(u0=r.u, lg0=r.lg, a_h2o0=r.a_h2o)
+        else:
+            raise ConvergenceError("bilan d'eau non converge")
+        r.n_min = {m: n * w for m, n in r.n_min.items()}
+        r.water_mass = w
+        r.timings.newton = newton
+        if self.timing:
+            r.timings.total = time.perf_counter() - t0
+        return r
+
     def _outer_loop(self, u, n_act, active, n_fug, n_tot, bubble_on, T, uidx,
                     eqidx, charge_row, ib, if_, target, mode, gas_volume,
-                    gas_pressure, cec, step_max, tm):
-        """Point fixe sur les activites, englobant l'ensemble actif et Newton."""
+                    gas_pressure, cec, step_max, tm, start=None):
+        """Fixed point on the activities, wrapping the active set and Newton."""
         s = self.s
         lphi, Zgas = np.zeros(len(s.gases)), 1.0
         it_total, err = 0, 0.0
-        c0 = self._concentrations(u, np.zeros(len(s.species)), 1.0)
+        if start is None:
+            c0 = self._concentrations(u, np.zeros(len(s.species)), 1.0)
+        else:
+            c0 = self._concentrations(u, start[0], start[1])
         aq0 = c0 * s.is_aq
-        I = ionic_strength(aq0, s.z)
+        I = 0.5 * float(np.dot(aq0, self._z2))
         lg = self._log_gamma(I, aq0, cec)
         a_h2o = water_activity(aq0)
         essais_phase = {}
@@ -1045,15 +1030,15 @@ class Speciation:
             lg_prev = lg
             c = self._concentrations(u, lg, a_h2o)
             aq = c * s.is_aq
-            I = ionic_strength(aq, s.z)
+            I = 0.5 * float(np.dot(aq, self._z2))
             lg = self._log_gamma(I, aq, cec)
             a_h2o = water_activity(aq)
             lphi, Zgas = self._update_eos(u, a_h2o, ib, if_, target, mode,
                                           n_tot, gas_volume, lphi, Zgas)
             if self.timing:
                 tm.activity += time.perf_counter() - ta
-            if (np.max(np.abs(lg - lg_prev)) < 1e-10
-                    and (not len(lphi) or np.max(np.abs(lphi - lphi_prev)) < 1e-12)):
+            if (np.maximum.reduce(np.abs(lg - lg_prev), axis=None) < 1e-10
+                    and (not len(lphi) or np.maximum.reduce(np.abs(lphi - lphi_prev), axis=None) < 1e-12)):
                 break
         else:
             raise ConvergenceError("coefficients d'activite non converges")
@@ -1063,11 +1048,7 @@ class Speciation:
                 a_h2o, I, it_total, err)
 
     def _pressures(self, u, a_h2o, idx, lphi=None) -> np.ndarray:
-        """Pressions partielles (atm) des gaz d'indices idx.
-
-        La loi d'action de masse porte sur la fugacite f = phi * p ; on retire
-        donc log10(phi) pour obtenir la pression partielle.
-        """
+        """Partial pressures (atm) of the gases `idx`."""
         s = self.s
         if not len(idx):
             return np.zeros(0)
@@ -1075,14 +1056,13 @@ class Speciation:
         lp = s.nu_gas[idx] @ u + s.nu_gas_free[idx] @ la_free - s.logk_gas[idx]
         if lphi is not None:
             lp = lp - lphi[idx]
-        return 10.0 ** np.clip(lp, -300.0, 30.0)
+        np.maximum(lp, -300.0, out=lp)
+        np.minimum(lp, 30.0, out=lp)
+        return 10.0 ** lp
 
     def _update_eos(self, u, a_h2o, ib, if_, target, mode, n_tot, gas_volume,
                     lphi, Z):
-        """Met a jour les coefficients de fugacite (boucle externe, comme les
-        coefficients d'activite). Les gaz a fugacite imposee sont traites purs
-        a leur propre pression partielle, la bulle comme un melange a sa
-        pression totale."""
+        """Updates the fugacity coefficients (outer loop)."""
         s = self.s
         if self.eos != "pr" or not len(s.gases):
             return lphi, Z
@@ -1103,42 +1083,34 @@ class Speciation:
                 new[ib] = lp
         return new, Z
 
-    def _log_gamma(self, I, aq, cec) -> np.ndarray:
-        """log10 des coefficients d'activite de toutes les especes.
-
-        Aqueux   : Davies / Debye-Huckel etendu.
-        Echange  : convention de Gaines-Thomas, a_i = gamma_i nu_X,i n_i / CEC,
-                   ou gamma_i est calcule avec la charge du cation echange
-                   (egale au nombre de sites nu_X,i), comme dans PHREEQC.
-        Surface  : modele non electrostatique, a_i = n_i (gamma = 1).
-        """
+    def _gamma_terms(self):
+        """Constant terms of the activity coefficients (aqueous species, exchange species), computed once."""
         s = self.s
-        lg = log_gamma(I, s.z, s.dh_a, s.dh_b, s.tk)
+        if self._gamma_constants is None:
+            self._gamma_constants = (
+                _log_gamma_constants(s.z, s.dh_a, s.dh_b, s.tk),
+                _log_gamma_constants(s.nu_x, s.dh_a, s.dh_b, s.tk))
+        return self._gamma_constants
+
+    def _log_gamma(self, I, aq, cec) -> np.ndarray:
+        """log10 activity coefficients of all species (aqueous, exchange, surface)."""
+        s = self.s
+        self._gamma_terms()
+        lg = _log_gamma_terms(I, self._gamma_constants[0])
         lg = np.where(s.is_aq, lg, 0.0)
         if s.exchanger and cec > 0:
-            lg_x = (log_gamma(I, s.nu_x, s.dh_a, s.dh_b, s.tk)
-                    + np.log10(np.maximum(s.nu_x, 1e-30) / cec))
+            if self._lg_x_offset[0] != cec:
+                self._lg_x_offset = (cec, np.log10(self._nu_x_floor / cec))
+            lg_x = (_log_gamma_terms(I, self._gamma_constants[1])
+                    + self._lg_x_offset[1])
             lg = np.where(s.is_exch, lg_x, lg)
         return lg
 
     def _revise_guess(self, u, lg, a_h2o, T_eff, rows, max_pass: int = 60,
                       marge: float = 20.0):
-        """Pre-conditionnement des inconnues avant Newton.
-
-        Le pas de Newton en logarithme ne corrige une surestimation que de
-        1/ln10 = 0.43 decade par iteration : partir d'une espece 1e18 fois trop
-        concentree demanderait 42 iterations rien que pour elle, et les
-        composants couples derivent pendant ce temps. On applique donc d'abord
-        un Newton diagonal en log, exact pour un composant porte par une seule
-        espece, jusqu'a ramener chaque bilan dans un facteur 'marge'.
-
-        La marge est large a dessein. T_eff ignore les transferts de phase
-        encore inconnus (ce qu'un gaz va prendre a la solution, par exemple) :
-        viser un facteur 2 ferait donc deriver une initialisation deja bonne,
-        et ruinerait le demarrage a chaud d'un couplage.
-        """
+        """Diagonal log-Newton preconditioning of the unknowns."""
         s = self.s
-        nu2 = s.nu * s.nu
+        nu2 = self._nu2
         for _ in range(max_pass):
             c = self._concentrations(u, lg, a_h2o)
             S = s.nu.T @ c
@@ -1162,22 +1134,401 @@ class Speciation:
         s = self.s
         la_free = np.array([np.log10(a_h2o), -s.pe])
         lc = s.logk + s.nu @ u + s.nu_free @ la_free - lg
-        return 10.0 ** np.clip(lc, -300.0, 30.0)
+        np.maximum(lc, -300.0, out=lc)
+        np.minimum(lc, 30.0, out=lc)
+        return 10.0 ** lc
+
+    @staticmethod
+    def _rows(M, X):
+        """M @ x for every row x of X, rounded exactly as one M @ x per row (rows made contiguous like 1-D vectors)."""
+        return np.matmul(M, np.ascontiguousarray(X)[..., None])[..., 0]
+
+    @staticmethod
+    def _dots(X, v):
+        """np.dot(x, v) for every row x of X, rounded exactly as one dot per row (rows made contiguous)."""
+        return np.matmul(np.ascontiguousarray(X)[:, None, :], v)[:, 0]
+
+    def _concentrations_block(self, U, LG, A):
+        """_concentrations of every row of U, LG, A."""
+        s = self.s
+        la_free = np.empty((len(A), 2))
+        la_free[:, 0] = np.log10(A)
+        la_free[:, 1] = -s.pe
+        lc = s.logk + self._rows(s.nu, U) + self._rows(s.nu_free, la_free) - LG
+        np.maximum(lc, -300.0, out=lc)
+        np.minimum(lc, 30.0, out=lc)
+        return 10.0 ** lc
+
+    def _activities_block(self, C, lg_x):
+        """Ionic strength, log10 activity coefficients and water activity of every row (lg_x: exchange offsets)."""
+        s = self.s
+        aq = C * s.is_aq
+        I = 0.5 * self._dots(aq, self._z2)
+        constants = self._gamma_terms()
+        lg = np.where(s.is_aq, _log_gamma_terms(I, constants[0]), 0.0)
+        if lg_x is not None:
+            lg = np.where(s.is_exch, _log_gamma_terms(I, constants[1]) + lg_x, lg)
+        a_h2o = np.maximum(1.0 - 0.017 * np.add.reduce(aq, axis=1), 1e-3)
+        return I, lg, a_h2o
+
+    def _revise_block(self, U, LG, A, T, rows, max_pass: int = 60, marge: float = 20.0):
+        """_revise_guess of every row."""
+        s = self.s
+        U = U.copy()
+        rows = np.asarray(rows, dtype=int)
+        live = np.arange(len(U))
+        for _ in range(max_pass):
+            if not len(live):
+                break
+            c = self._concentrations_block(U[live], LG[live], A[live])
+            S = self._rows(s.nu.T, c)
+            t, sr = T[live][:, rows], S[:, rows]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                ratio = sr / t
+                out = (t > 0) & (sr > 0) & ~((1.0 / marge < ratio) & (ratio < marge))
+            moving = out.any(axis=1)
+            du = np.zeros((len(live), s.nc))
+            for k, i in zip(*np.nonzero(out)):
+                j = rows[i]
+                nu_eff = float(self._nu2[:, j] @ c[k]) / S[k, j]
+                du[k, j] = -np.log10(ratio[k, i]) / max(nu_eff, 1e-3)
+            live = live[moving]
+            U[live] = U[live] + np.clip(du[moving], -3.0, 3.0)
+        return U
+
+    def _newton_block(self, U, LG, A, NA, T, lg_x, charge_row, step_max, act=()):
+        """_newton of every row, all with the active minerals `act` (no gas nor imposed pH)
+        -> (u, lg, a_h2o, n_min, iterations, error, converged)."""
+        s = self.s
+        n, nc = U.shape
+        act = list(act)
+        na = len(act)
+        NA = NA.copy()
+        if na:
+            nu_a = s.nu_min[act]
+            abs_nu_a = np.abs(nu_a)
+            free_a = s.nu_min_free[act]
+            logk_a = s.logk_min[act]
+            charge_a = nu_a @ s.z_components if charge_row is not None else None
+            T_eff = T - self._rows(nu_a.T, NA[:, act])
+        else:
+            T_eff = T
+        U = self._revise_block(U, LG, A, T_eff, [j for j in range(nc) if j != charge_row])
+        LG, A = LG.copy(), A.copy()
+        iterations = np.full(n, self.max_newton, dtype=int)
+        error = np.zeros(n)
+        converged = np.zeros(n, dtype=bool)
+        best = np.full(n, np.inf)
+        stall = np.zeros(n, dtype=int)
+        small = np.zeros(n, dtype=bool)
+        abs_z = np.abs(s.z)
+        live = np.arange(n)
+        for it in range(1, self.max_newton + 1):
+            if not len(live):
+                break
+            u, lg, a = U[live], LG[live], A[live]
+            c = self._concentrations_block(u, lg, a)
+            k = np.flatnonzero(small[live]) if self.inner_gamma else []
+            if len(k):
+                _, lg[k], a[k] = self._activities_block(c[k], None if lg_x is None else lg_x[live[k]])
+                c[k] = self._concentrations_block(u[k], lg[k], a[k])
+                LG[live[k]], A[live[k]] = lg[k], a[k]
+            t = T[live]
+            R = self._rows(s.nu.T, c) - t
+            scale = np.maximum(np.abs(t), self._rows(self._abs_nu.T, c))
+            if na:
+                n_a = NA[live][:, act]
+                R = R + self._rows(nu_a.T, n_a)
+                scale = np.maximum(scale, self._rows(abs_nu_a.T, np.abs(n_a)))
+            scale = np.maximum(scale, 1e-30)
+            if charge_row is not None:
+                R[:, charge_row] = self._dots(c, s.z)
+                scale[:, charge_row] = np.maximum(self._dots(c, abs_z), 1e-30)
+            err_mb = np.maximum.reduce(np.abs(R) / scale, axis=1)
+            if na:
+                la_free = np.empty((len(a), 2))
+                la_free[:, 0] = np.log10(a)
+                la_free[:, 1] = -s.pe
+                Rmin = self._rows(nu_a, u) + self._rows(free_a, la_free) - logk_a
+                worst = np.maximum.reduce(np.abs(Rmin), axis=1)
+                err_si = np.where(worst > 0.0, worst, 0.0)
+            else:
+                err_si = np.zeros(len(live))
+            relative = err_si * self.tol / self.tol_si
+            err = np.where(relative > err_mb, relative, err_mb)
+            done = (err_mb < self.tol) & (err_si < self.tol_si)
+            improved = err < best[live] * (1.0 - 1e-3)
+            best[live] = np.where(improved, err, best[live])
+            stall[live] = np.where(improved, 0, stall[live] + 1)
+            done |= (stall[live] >= 10) & (err < self.tol_stall)
+            iterations[live[done]] = it
+            error[live] = err_mb
+            converged[live[done]] = True
+            keep = ~done
+            live, u, c, R = live[keep], u[keep], c[keep], R[keep]
+            if not len(live):
+                break
+            J = LN10 * np.matmul(s.nu.T, s.nu[None, :, :] * c[:, :, None])
+            if charge_row is not None:
+                J[:, charge_row] = LN10 * np.matmul((s.z * c)[:, None, :], s.nu)[:, 0, :]
+            if na:
+                n_a = n_a[keep]
+                full = np.zeros((len(live), nc + na, nc + na))
+                full[:, :nc, :nc] = J
+                full[:, :nc, nc:] = nu_a.T
+                if charge_row is not None:
+                    full[:, charge_row, nc:] = charge_a
+                full[:, nc:, :nc] = nu_a
+                J = full
+                R = np.concatenate((R, Rmin[keep]), axis=1)
+            rs = np.maximum(np.abs(J).max(axis=2), 1e-300)
+            Js = J / rs[:, :, None]
+            cs = np.maximum(np.abs(Js).max(axis=1), 1e-300)
+            Js /= cs[:, None, :]
+            rhs = -R / rs
+            try:
+                dx = np.linalg.solve(Js, rhs[..., None])[..., 0] / cs
+            except np.linalg.LinAlgError:
+                dx = np.empty_like(rhs)
+                for k in range(len(live)):
+                    try:
+                        dx[k] = np.linalg.solve(Js[k], rhs[k]) / cs[k]
+                    except np.linalg.LinAlgError:
+                        dx[k] = np.linalg.lstsq(Js[k], rhs[k], rcond=None)[0] / cs[k]
+            big = np.maximum.reduce(np.abs(dx[:, :nc]), axis=1)
+            small[live] = big < 0.5
+            over = big > step_max
+            if over.any():
+                dx[over] = dx[over] * (step_max / big[over])[:, None]
+            U[live] = u + dx[:, :nc]
+            if na:
+                n_a = n_a + dx[:, nc:]
+                NA[live[:, None], act] = n_a
+                if it >= 2:
+                    negative = np.any(n_a < 0.0, axis=1)
+                    iterations[live[negative]] = it
+                    converged[live[negative]] = True
+                    live = live[~negative]
+        return U, LG, A, NA, iterations, error, converged
+
+    def _update_active(self, active, n_act, si, tries):
+        """Active set step of _outer_loop for one row (active, n_act, tries changed in place) -> whether it changed."""
+        neg = [i for i in active if n_act[i] < 0.0]
+        if neg:
+            worst = min(neg, key=lambda i: n_act[i])
+            active.remove(worst)
+            n_act[worst] = 0.0
+            return True
+        cand = [i for i in range(len(self.s.minerals))
+                if i not in active and si[i] > 1e-8 and tries.get(i, 0) < 2]
+        if cand:
+            best = max(cand, key=lambda i: si[i])
+            active.append(best)
+            tries[best] = tries.get(best, 0) + 1
+            return True
+        return False
+
+    def _saturation_block(self, U, A):
+        """Saturation indices of the minerals for every row."""
+        s = self.s
+        la_free = np.empty((len(A), 2))
+        la_free[:, 0] = np.log10(A)
+        la_free[:, 1] = -s.pe
+        return self._rows(s.nu_min, U) + self._rows(s.nu_min_free, la_free) - s.logk_min
+
+    def _outer_block(self, U, lg0, a0, NA, active, T, lg_x, charge_row, step_max):
+        """_outer_loop of every row from its warm start (lg0, a0), active minerals in `active` (lists changed in place)
+        -> (u, lg, a_h2o, I, n_min, iterations, error, converged)."""
+        n = len(U)
+        U, NA = U.copy(), NA.copy()
+        I, LG, A = self._activities_block(self._concentrations_block(U, lg0, a0), lg_x)
+        iterations = np.zeros(n, dtype=int)
+        error = np.zeros(n)
+        converged = np.zeros(n, dtype=bool)
+        failed = np.zeros(n, dtype=bool)
+        tries = [{} for _ in range(n)]
+        live = np.arange(n)
+        for _ in range(self.max_outer):
+            if not len(live):
+                break
+            pending = live
+            for _ in range(40):
+                if not len(pending):
+                    break
+                groups = {}
+                for i in pending:
+                    groups.setdefault(tuple(active[i]), []).append(i)
+                changed = []
+                for act, rows in groups.items():
+                    rows = np.array(rows, dtype=int)
+                    u, lg, a, nm, it, err, ok = self._newton_block(
+                        U[rows], LG[rows], A[rows], NA[rows], T[rows], None if lg_x is None else lg_x[rows],
+                        charge_row, step_max, act)
+                    iterations[rows] += it
+                    error[rows] = err
+                    failed[rows[~ok]] = True
+                    rows, u, lg, a, nm = rows[ok], u[ok], lg[ok], a[ok], nm[ok]
+                    U[rows], LG[rows], A[rows], NA[rows] = u, lg, a, nm
+                    if not len(self.s.minerals):
+                        continue
+                    si = self._saturation_block(u, a)
+                    for k, i in enumerate(rows):
+                        if self._update_active(active[i], NA[i], si[k], tries[i]):
+                            changed.append(i)
+                pending = np.array(sorted(changed), dtype=int)
+            live = live[~failed[live]]
+            if not len(live):
+                break
+            offsets = None if lg_x is None else lg_x[live]
+            lg = LG[live]
+            I_new, lg_new, a_new = self._activities_block(self._concentrations_block(U[live], lg, A[live]), offsets)
+            stable = np.maximum.reduce(np.abs(lg_new - lg), axis=1) < 1e-10
+            LG[live], A[live], I[live] = lg_new, a_new, I_new
+            converged[live[stable]] = True
+            live = live[~stable]
+        return U, LG, A, I, NA, iterations, error, converged
+
+    def _attempt_block(self, T, cec, u0, lg0, a0, N0, charge_row):
+        """First attempt of solve() (step max_step) of every row, minerals n0 = rows of N0
+        -> (u, lg, a_h2o, I, n_min, iterations, error, converged, c, active)."""
+        s = self.s
+        lg_x = np.log10(self._nu_x_floor[None, :] / cec[:, None]) if s.exchanger else None
+        active = [[i for i in range(len(s.minerals)) if N0[k, i] > 0] for k in range(len(N0))]
+        U, LG, A, I, NA, iterations, error, converged = self._outer_block(u0, lg0, a0, N0, active, T, lg_x,
+                                                                          charge_row, self.max_step)
+        return U, LG, A, I, NA, iterations, error, converged, self._concentrations_block(U, LG, A), active
+
+    def _charge_warning(self, T, u, charge_balance):
+        """Whether solve() would warn about the charge imbalance of the totals (the node then goes through solve())."""
+        if not charge_balance:
+            return False
+        q = float(np.dot(self.s.z_components, T))
+        pH = -u[self.s.index["H+"]]
+        return (pH < 2.5 or pH > 11.5) and abs(q) > 1e-3 * float(np.max(np.abs(T)))
+
+    def _blocked(self, u, a_h2o, active):
+        """Whether solve() would warn about supersaturated minerals left out of the active set."""
+        s = self.s
+        if not len(s.minerals):
+            return False
+        la_free = np.array([np.log10(a_h2o), -s.pe])
+        si = s.nu_min @ u + s.nu_min_free @ la_free - s.logk_min
+        return any(i not in active and si[i] > 1e-6 for i in range(len(s.minerals)))
+
+    def _block_result(self, u, c, lg, I, a_h2o, n_min, iterations, error, newton, water_mass=1.0):
+        """Result of one row of a block, as solve() builds it without gas."""
+        s = self.s
+        return Result(system=s, u=u.copy(), c=c.copy(), lg=lg.copy(),
+                      n_min={m: float(n_min[i]) for i, m in enumerate(s.minerals)}, n_gas={}, p_gas={},
+                      ionic_strength=float(I), a_h2o=float(a_h2o), iterations=int(iterations), error=float(error),
+                      gas_volume=0.0, gas_z=1.0, water_mass=water_mass, timings=Timings(newton=int(newton)))
+
+    def solve_many(self, totals: list, cec, u0, lg0, a_h2o0, minerals: list | None = None,
+                   charge_balance: bool = True, water=None, water_mass0=None) -> list:
+        """solve() of many nodes at once, each from its warm start (rows of u0, lg0, a_h2o0), without gas, imposed pH
+        nor surface -> list of Result (same values as solve), None for a node that must go through solve() (invalid
+        input, not converged at the first attempt, warning to emit)."""
+        s = self.s
+        n = len(totals)
+        results = [None] * n
+        if not n or len(s.gases) or s.surfaces or (s.exchanger and not s.is_exch.any()):
+            return results
+        keys = list(totals[0])
+        if any(list(t) != keys for t in totals):
+            return results
+        try:
+            cols = [s.index[s.db.master[k].species if k in s.db.master else k] for k in keys]
+        except KeyError:
+            return results
+        if len(set(cols)) != len(cols):
+            return results
+        values = np.array([[t[k] for k in keys] for t in totals], dtype=float).reshape(n, len(keys))
+        nm = len(s.minerals)
+        N0 = np.array([[(m or {}).get(name, 0.0) for name in s.minerals] for m in (minerals or [None] * n)],
+                      dtype=float).reshape(n, nm)
+        cec = np.asarray(cec, dtype=float)
+        u0, lg0, a_h2o0 = (np.asarray(x, dtype=float) for x in (u0, lg0, a_h2o0))
+        live = (np.all(np.isfinite(u0), axis=1) & np.all(np.isfinite(lg0), axis=1) & np.isfinite(a_h2o0)
+                & (a_h2o0 > 0) & (u0.shape[1] == s.nc) & (lg0.shape[1] == len(s.species)))
+        jH, je = s.index["H+"], s.index.get("e-")
+        jx = s.index[s.db.master[s.exchanger].species] if s.exchanger else None
+        if jx is not None:
+            live &= cec > 0
+        checked = np.array([j for j in range(s.nc) if j != jH and j != je], dtype=int)
+        charge_row = jH if charge_balance else None
+
+        def totalsBlock(rows, w=None):
+            T = np.zeros((len(rows), s.nc))
+            T[:, cols] = values[rows] if w is None else values[rows] / w[:, None]
+            if jx is not None:
+                T[:, jx] = cec[rows] if w is None else cec[rows] / w
+            if nm:
+                T = T + self._rows(s.nu_min.T, N0[rows] if w is None else N0[rows] / w[:, None])
+            return T
+
+        def accepted(T, U, A, active):
+            return np.array([not self._charge_warning(T[k], U[k], charge_balance)
+                             and not self._blocked(U[k], A[k], active[k]) for k in range(len(T))], dtype=bool)
+
+        live = np.flatnonzero(live)
+        if water is None:
+            T = totalsBlock(live)
+            keep = ~np.any(T[:, checked] <= 0, axis=1)
+            live, T = live[keep], T[keep]
+            U, LG, A, I, NA, it, err, ok, C, active = self._attempt_block(T, cec[live], u0[live], lg0[live],
+                                                                         a_h2o0[live], N0[live], charge_row)
+            ok &= accepted(T, U, A, active)
+            for k, i in enumerate(live):
+                if ok[k]:
+                    results[i] = self._block_result(U[k], C[k], LG[k], I[k], A[k], NA[k], it[k], err[k], it[k])
+            return results
+
+        W = np.array([float(water[k]) + sum(s.nu_min_free[i, 0] * (minerals[k] or {}).get(m, 0.0)
+                                            for i, m in enumerate(s.minerals)) if minerals else float(water[k]) + 0
+                      for k in range(n)])
+        m0 = np.zeros(n) if water_mass0 is None else np.asarray(water_mass0, dtype=float)
+        w = np.where(m0 > 0, m0, np.maximum(np.asarray(water, dtype=float) / H2O_PER_KG, 1e-6))
+        U, LG, A = u0.copy(), lg0.copy(), a_h2o0.copy()
+        newton = np.zeros(n, dtype=int)
+        for _ in range(50):
+            if not len(live):
+                break
+            T = totalsBlock(live, w[live])
+            keep = ~np.any(T[:, checked] <= 0, axis=1)
+            live, T = live[keep], T[keep]
+            Ub, LGb, Ab, Ib, NAb, it, err, ok, C, active = self._attempt_block(
+                T, cec[live] / w[live], U[live], LG[live], A[live], N0[live] / w[live][:, None], charge_row)
+            ok &= accepted(T, Ub, Ab, active)
+            nxt = []
+            for k, i in enumerate(live):
+                if not ok[k]:
+                    continue
+                newton[i] += it[k]
+                n_min = np.array([float(NAb[k, j]) for j in range(nm)])
+                bound = w[i] * (float(s.nu_free[:, 0] @ C[k]) + float(s.nu_min_free[:, 0] @ n_min))
+                w_new = (W[i] - bound) / H2O_PER_KG
+                if not w_new > 0:
+                    continue
+                if abs(w_new - w[i]) <= 1e-12 * w[i]:
+                    results[i] = self._block_result(Ub[k], C[k], LGb[k], Ib[k], Ab[k], n_min * w[i], it[k], err[k],
+                                                    newton[i], water_mass=float(w[i]))
+                    continue
+                w[i] = w_new
+                U[i], LG[i], A[i] = Ub[k], LGb[k], Ab[k]
+                nxt.append(i)
+            live = np.array(nxt, dtype=int)
+        return results
 
     def _newton(self, u, n_act, active, n_fug, n_tot, lg, a_h2o, T, uidx, eqidx,
                 charge_row, ib, if_, target, mode, gas_volume, gas_pressure,
                 bubble_on, lphi, Zgas, cec, step_max, tm):
-        """Newton amorti a coefficients d'activite et ensemble actif geles.
-
-        Inconnues : u, moles des mineraux actifs, moles echangees avec les gaz
-        a fugacite imposee, moles totales de la bulle a pression fixe.
-        """
+        """Damped Newton with frozen activity coefficients and active set."""
         s = self.s
         act = np.array(active, dtype=int)
         nu_a = s.nu_min[act] if len(act) else np.zeros((0, s.nc))
         nu_f = s.nu_gas[if_] if len(if_) else np.zeros((0, s.nc))
         nu_b = s.nu_gas[ib] if len(ib) else np.zeros((0, s.nc))
-        abs_nu = np.abs(s.nu)
+        abs_nu = self._abs_nu
         vrt = gas_volume / (Zgas * R_GAS * s.tk) if mode == "V" else 0.0
         bubP = mode == "P" and bubble_on and len(ib) > 0
         n_extra = len(act) + len(if_) + (1 if bubP else 0)
@@ -1215,7 +1566,7 @@ class Speciation:
             c = self._concentrations(u, lg, a_h2o)
             if self.inner_gamma and small_step:
                 aq = c * s.is_aq
-                lg = self._log_gamma(ionic_strength(aq, s.z), aq, cec)
+                lg = self._log_gamma(0.5 * float(np.dot(aq, self._z2)), aq, cec)
                 a_h2o = water_activity(aq)
                 c = self._concentrations(u, lg, a_h2o)
             la_free = np.array([np.log10(a_h2o), -s.pe])
@@ -1253,9 +1604,9 @@ class Speciation:
             Rgas = (np.array([float(p_b.sum()) / gas_pressure - 1.0]) if bubP
                     else np.zeros(0))
 
-            err_mb = float(np.max(np.abs(R) / scale)) if len(R) else 0.0
+            err_mb = float(np.maximum.reduce(np.abs(R) / scale, axis=None)) if len(R) else 0.0
             err_si = max([0.0]
-                         + [float(np.max(np.abs(x))) for x in (Rmin, Rfug, Rgas)
+                         + [float(np.maximum.reduce(np.abs(x), axis=None)) for x in (Rmin, Rfug, Rgas)
                             if len(x)])
             err = max(err_mb, err_si * self.tol / self.tol_si)
             if self.timing:
@@ -1323,7 +1674,7 @@ class Speciation:
                 tm.linalg += time.perf_counter() - tl
             tm.solves += 1
 
-            big = float(np.max(np.abs(dx[:len(uidx)])))
+            big = float(np.maximum.reduce(np.abs(dx[:len(uidx)]), axis=None))
             small_step = big < 0.5
             if big > step_max:
                 dx = dx * (step_max / big)
@@ -1346,15 +1697,14 @@ class Speciation:
         tm.newton += it
         if err_mb >= err_si:
             j = int(np.argmax(np.abs(R[:len(eqidx)]) / scale))
-            where = f"bilan sur {s.components[eqidx[j]]}"
+            where = f"mass balance of {s.components[eqidx[j]]}"
         elif len(act) and np.max(np.abs(Rmin)) >= err_si - 1e-30:
-            where = f"saturation de {s.minerals[act[int(np.argmax(np.abs(Rmin)))]]}"
+            where = f"saturation of {s.minerals[act[int(np.argmax(np.abs(Rmin)))]]}"
         else:
-            where = "pression partielle imposee"
+            where = "imposed partial pressure"
         exc = ConvergenceError(
-            f"Newton non converge apres {it} iterations : residu {err:.2e} "
-            f"({where}). Pistes : reduire max_step, verifier que tous les "
-            f"totaux sont strictement positifs, ou relacher tol.")
+            f"Newton not converged after {it} iterations : residual {err:.2e} "
+            f"({where}) ; reduce max_step, check that every total is positive, or relax tol.")
         exc.u = u
         raise exc
 
@@ -1362,21 +1712,20 @@ class Speciation:
 def diagnose(system: ChemicalSystem, totals: dict, cec: float = 0.0,
              sites: dict | None = None, minerals: dict | None = None,
              pH: float | None = None) -> None:
-    """Rapport complet sur un cas : a lancer et a copier-coller en cas de
-    resultat inattendu. N'imprime que des donnees, ne modifie rien."""
+    """Prints a full report of a case (changes nothing)."""
     s = system
-    print(f"nativespeciation {__version__}   fichier {__file__}")
-    print(f"base : {len(s.db.master)} especes maitresses, {len(s.db.species)} "
-          f"especes, {len(s.db.phases)} phases")
-    print(f"temperature {s.tk - 273.15:.1f} C, pe {s.pe}, redox {s.redox}")
+    print(f"nativespeciation {__version__}   file {__file__}")
+    print(f"database : {len(s.db.master)} master species, {len(s.db.species)} "
+          f"species, {len(s.db.phases)} phases")
+    print(f"temperature {s.tk:.2f} K, pe {s.pe}, redox {s.redox}")
 
-    print("\ncomposants (charge) :",
+    print("\ncomponents (charge) :",
           ", ".join(f"{n}({z:+.0f})" for n, z in zip(s.components, s.z_components)))
-    for kind, label in (("aq", "aqueuses"), ("exch", "echange"), ("surf", "surface")):
+    for kind, label in (("aq", "aqueous"), ("exch", "exchange"), ("surf", "surface")):
         sel = [i for i, k in enumerate(s.kind) if k == kind]
         if not sel:
             continue
-        print(f"\nespeces {label} ({len(sel)}) :")
+        print(f"\n{label} species ({len(sel)}) :")
         for i in sel:
             stoich = " ".join(f"{s.nu[i, j]:+g} {c}" for j, c in
                               enumerate(s.components) if s.nu[i, j])
@@ -1395,18 +1744,18 @@ def diagnose(system: ChemicalSystem, totals: dict, cec: float = 0.0,
     if len(n0):
         T = T + s.nu_min.T @ n0
 
-    print("\ntotaux du systeme (mol/kgw) :")
+    print("\nsystem totals (mol/kgw) :")
     for j, n in enumerate(s.components):
         print(f"   {n:14s} T={T[j]:12.5e}  z*T={s.z_components[j] * T[j]:+12.5e}")
     q = float(np.dot(s.z_components, T))
-    print(f"   {'somme z*T':14s}                {q:+12.5e}"
-          f"   <- doit etre nul si le pH est libre")
+    print(f"   {'sum z*T':14s}                {q:+12.5e}"
+          f"   <- must be 0 when the pH is free")
 
     r = Speciation(s).solve(totals, pH=pH, cec=cec, sites=sites, minerals=minerals)
-    print(f"\nresultat : pH {r.pH:.4f}, I {r.ionic_strength:.4e}, "
-          f"residu {r.error:.2e}, {r.iterations} iterations")
-    print("   dissous :", {e: f"{r.total(e):.4e}" for e in totals})
+    print(f"\nresult : pH {r.pH:.4f}, I {r.ionic_strength:.4e}, "
+          f"residual {r.error:.2e}, {r.iterations} iterations")
+    print("   dissolved :", {e: f"{r.total(e):.4e}" for e in totals})
     if r.sorbed(1e-14):
-        print("   sorbe   :", {k: f"{v:.4e}" for k, v in r.sorbed(1e-14).items()})
+        print("   sorbed    :", {k: f"{v:.4e}" for k, v in r.sorbed(1e-14).items()})
     if r.n_min:
-        print("   mineraux:", {k: f"{v:.4e}" for k, v in r.n_min.items()})
+        print("   minerals  :", {k: f"{v:.4e}" for k, v in r.n_min.items()})

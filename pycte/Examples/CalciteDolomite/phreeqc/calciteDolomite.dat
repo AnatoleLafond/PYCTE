@@ -1,0 +1,93 @@
+# Base PHREEQC generee par gems2orchestra.py depuis CalciteIC-dch.dat
+# logK de formation calcules depuis les G0 GEMS (T = 298.15 K) ; activite : Davies (pas de -gamma : Davies pour les ions ; -gamma 0 0 : gamma = 1 pour les neutres, comme GEMS)
+
+SOLUTION_MASTER_SPECIES
+#element      species   alk    gfw_formula  element_gfw
+C             CO3-2     2      C            12.0108
+C(4)          CO3-2     2      C
+C(-4)         CH4       0      C
+Ca            Ca+2      0      Ca           40.078
+Cl            Cl-       0      Cl           35.453
+Cl(-1)        Cl-       0      Cl
+Cl(7)         ClO4-     0      Cl
+H             H+        -1     H            1.00795
+H(1)          H+        -1     H
+H(0)          H2        0      H
+Mg            Mg+2      0      Mg           24.305
+O             H2O       0      O            15.9994
+O(-2)         H2O       0      O
+O(0)          O2        0      O
+E             e-        0.0    0            0
+Alkalinity    CO3-2     1.0    Ca0.5(CO3)0.5  50.05
+
+SOLUTION_SPECIES
+# especes maitresses primaires
+CO3-2 = CO3-2
+    log_k 0
+Ca+2 = Ca+2
+    log_k 0
+Cl- = Cl-
+    log_k 0
+H+ = H+
+    log_k 0
+Mg+2 = Mg+2
+    log_k 0
+H2O = H2O
+    log_k 0
+e- = e-
+    log_k 0
+# especes secondaires
+CO3-2 + Ca+2 = Ca(CO3)  # GEMS: Ca(CO3)@
+    log_k 3.224241
+    -gamma 0.0 0.0
+CO3-2 + Ca+2 + H+ = Ca(HCO3)+  # GEMS: Ca(HCO3)+
+    log_k 11.434634
+Ca+2 + H2O = CaOH+ + H+  # GEMS: CaOH+
+    log_k -12.779829
+CO3-2 + Mg+2 = Mg(CO3)  # GEMS: Mg(CO3)@
+    log_k 2.979672
+    -gamma 0.0 0.0
+CO3-2 + H+ + Mg+2 = Mg(HCO3)+  # GEMS: Mg(HCO3)+
+    log_k 11.397143
+Mg+2 + H2O = MgOH+ + H+  # GEMS: MgOH+
+    log_k -11.439782
+CO3-2 + 2 H+ = CO2 + H2O  # GEMS: CO2@
+    log_k 16.680838
+    -gamma 0.0 0.0
+CO3-2 + H+ = HCO3-  # GEMS: HCO3-
+    log_k 10.328995
+CO3-2 + 10 H+ + 8 e- = CH4 + 3 H2O  # GEMS: CH4@
+    log_k 38.177258
+    -gamma 0.0 0.0
+Cl- + 4 H2O = ClO4- + 8 H+ + 8 e-  # GEMS: ClO4-
+    log_k -187.715206
+2 H+ + 2 e- = H2  # GEMS: H2@
+    log_k -3.105986
+    -gamma 0.0 0.0
+2 H2O = O2 + 4 H+ + 4 e-  # GEMS: O2@
+    log_k -85.985976
+    -gamma 0.0 0.0
+H2O = OH- + H+  # GEMS: OH-
+    log_k -13.999869
+
+PHASES
+CO2(g)
+    CO2 + H2O = CO3-2 + 2 H+  # GEMS: CO2
+    log_k -18.148600
+CH4(g)
+    CH4 + 3 H2O = CO3-2 + 10 H+ + 8 e-  # GEMS: CH4
+    log_k -41.033771
+H2(g)
+    H2 = 2 H+ + 2 e-  # GEMS: H2
+    log_k 0.000000
+O2(g)
+    O2 + 4 H+ + 4 e- = 2 H2O  # GEMS: O2
+    log_k 83.104762
+Calcite
+    CCaO3 = CO3-2 + Ca+2  # GEMS: Cal
+    log_k -8.480013
+Dolomite-dis
+    C2CaMgO6 = 2 CO3-2 + Ca+2 + Mg+2  # GEMS: Dis-Dol
+    log_k -16.539916
+
+END

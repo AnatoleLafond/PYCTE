@@ -117,6 +117,46 @@
 //********* Extra text 2 *******
 @class: extra_text_2(){
    @scan: objects2025.txt
+// ---- alignement PHREEQC : classes de objects2025.txt redefinies avec des tolerances serrees ----
+// (tol 1e-4 dans objects2025.txt : I, activite de l'eau, sites d'echange ; 1e-10 pour la charge ; 1e-13 bilans)
+   @Class: set_ion_activity_model(name)
+   {
+      @globalVar: logI -2
+      @Calc:(1, "I = 10^logI")
+      @Var: I.eq 0
+      @Calc: (3, "I.eq = (I /{I.calc})-1")
+      @<name>(0.1)
+      @solve: unknown:(name:, logI,  delta:, 1e-2, step: , .5,  iia:, true) equation:(name:, I.eq, tol:, 1e-13)
+   }
+   @Class: calculate_water_activity(){
+      @Var: H2O_activity_equation 0
+      @Calc:(5,"H2O_activity_equation = H2O.logact - log10(1 - 0.017 * min(20, sumAqIons))" )
+      @solve: unknown:(name:, H2O.logact,  delta:, 1e-3, type:, lin, step: , .1, reldelta:, 1e-3) equation:(name:, H2O_activity_equation, tol: , 1e-14 )
+   }
+   @class: surfsite(model, name, density, coef){
+      @Var: <model>_<name>.logk_unit 0
+      @Calc:(1, "<model>_<name>.logk_unit = 0")
+      @phase(<model>_<name>, <model>, <density>)
+      @entity(<model>_<name>, <model>_<name>, <coef>)
+      @solve: unknown:(name:, <model>_<name>.logact,  delta:, 1e-6, type:, lin, step: , .1, default:, -1) equation:(name:, <model>_<name>.<model>_<name>, tol: , 1e-14, default:, 1)
+   }
+   @Class: primary_entity(name, unknownvalue, phase, equationvalue){
+        @globalvar: <name>.logact <unknownvalue>
+        @globalvar: <name>.<phase> <equationvalue>
+        @solve: unknown:(name:, <name>.logact,  delta:, 1e-6, type:, lin, step: , 1, default:, <unknownvalue>) equation:(name:, <name>.<phase>, tol: , 1e-16, default:, <equationvalue>) )
+   }
+   @class: calculate_rho_sat(){
+      @Var: DH_A 0.5100247894269
+      @Var: DH_B 32849063.3992
+      @Calc:(1, "DH_A = 0.5100247894269")
+      @Calc:(1, "DH_B = 32849063.3992")
+   }
+   @Class: balance_charge(unknown)
+   {
+      @GlobalVar: chargebalance 0
+      @Calc: (1, "chargebalance = 0")
+      @solve: unknown:(name:, <unknown>,  delta:, 1e-6, type:, lin, step: , .1,iia:, true) equation:(name:, chargebalance, tol: , 1e-16, default:, 0)
+   }
 }
 @extra_text_2()
 //********* End of extra text 2 *******
@@ -127,8 +167,6 @@
 
 //********* The primary entities *******
 
-@entity(C, tot, 0)
-@primary_entity(C, -9.0, tot, 1.0E-9)
 @entity(Ca, tot, 0)
 @primary_entity(Ca, -9.0, tot, 1.0E-9)
 @entity(Cl, tot, 0)
@@ -136,7 +174,7 @@
 @Global: pe
 @Calc:(1, "E.logact = -pe")
 @entity(E, tot, 0)
-@primary_entity(E, pe, 7.0)
+@primary_entity(E, pe, 12.5)     // pe impose 12.5 = Fix_pe -12.5 O2 de ref.pqi
 @Global: pH
 @Calc:(1, "H.logact = -pH")
 @entity(H, tot, 0)
@@ -146,11 +184,13 @@
 @entity(N, tot, 0)
 @primary_entity(N, -9.0, tot, 1.0E-9)
 @entity(Na, tot, 0)
-@primary_entity(Na, -9.0, tot, 1.0E-9)
+@primary_entity(Na, -3.0)     // Na libre : ajuste par @balance_charge (tampon NaOH)
 @Global: H2O.logact
 @Calc:(1, "O.logact = H2O.logact")
 @entity(O, tot, 0)
 @primary_entity(O, H2O.logact, -0.0)
+// pH impose (H) et electroneutralite par Na = Fix_H+ -7 NaOH de ref.pqi
+@balance_charge(Na.logact)
 //****************************************
 //******************************
 
@@ -161,58 +201,52 @@
 //********* End of extra text 2a *******
 
 //********* The entities *******
-
-@species(Ca+2, 2)
+// especes de phreeqc.dat pour Ca, Cl, K, N, Na, H, O, e- : log K a 25 C (expressions analytiques evaluees
+// comme PHREEQC), parametres -gamma a b ; generees par make_chem.py
+// especes maitresses (chaine entite -> espece d'origine, inchangee)
+@species(Ca+2, 2, 5.0, 0.165)
 @logKreaction(Ca+2, 0, 1.0, Ca)
 @entity(N[+5], tot, 0)
 @logKreaction(N[+5], 0, 1.0, N)
-@species(NO3-, -1)
+@species(NO3-, -1, 3.0, 0.0)
 @logKreaction(NO3-, 0, 1.0, N[+5])
-@species(CaNO3+, 1, 0, 0)
-@logKreaction(CaNO3+, "(( (1.0 / log(10)) * ((0.5 * log(10)) - (-5400.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Ca+2, 1.0, NO3-)
 @entity(H[+1], tot, 0)
 @logKreaction(H[+1], 0.0, 1.0, H)
-@species(H+, 1)
+@species(H+, 1, 9.0, 0.0)
 @logKreaction(H+, 0.0, 1.0, H[+1])
 @entity(O[-2], tot, 0)
 @logKreaction(O[-2], 0.0, 1.0, O)
 @entity(H2O, liter, 55.6)
 @logKreaction(H2O, 0.0, 1.0, O[-2])
-@species(CaOH+, 1, 6, 0)
-@logKreaction(CaOH+, "(( (1.0 / log(10)) * ((-12.697 * log(10)) - (64110.0 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, Ca+2, -1.0, H+, 1.0, H2O)
-@species(Cl-, -1)
+@species(Cl-, -1, 3.5, 0.015)
 @logKreaction(Cl-, 0.0, 1.0, Cl)
-@species(K+, 1)
+@species(K+, 1, 3.5, 0.015)
 @logKreaction(K+, 0, 1.0, K)
-@species(Na+, 1)
+@species(Na+, 1, 4.0, 0.075)
 @logKreaction(Na+, 0.0, 1.0, Na)
 @entity(e-, diss, 0)
 @logKreaction(e-, 0, 1.0, E)
-@entity(H[+0], tot, 0)
-@logKreaction(H[+0], "(( (1.0 / log(10)) * ((-3.15 * log(10)) - (-7359.656 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 2.0, H, 2.0, e-)
-@species(H2, 0)
-@logKreaction(H2, 0, 1.0, H[+0])
-@species(NaOH, 0, 0.00, 0.00)
-@logKreaction(NaOH, -14.18, -1.0, H+, 1.0, H2O, 1.0, Na+)
-@entity(O[+0], tot, 0)
-@logKreaction(O[+0], "((38.0229 + 0.00799407 * @T() + -27655.0 / @T() + -14.506 * log10(@T()) + 199838.45 / (@T() * @T())))", -4.0, H+, 2.0, O, -4.0, e-)
-@species(O2, 0)
-@logKreaction(O2, 0, 1.0, O[+0])
-@species(OH-, -1)
-@logKreaction(OH-, -13.9995, -1.0, H+, 1.0, H2O)
-
-//
-@entity(C[+4], tot, 0)
-@logKreaction(C[+4], 0, 1.0, C)
-@species(CO3-2, -2, 5.4, 0)
-@logKreaction(CO3-2, 0, 1.0, C[+4])
-@species(CO2, 0)
-@logKreaction(CO2, "(( (1.0 / log(10)) * ((16.681 * log(10)) - (-24007.792 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, CO3-2, 2.0, H+, -1.0, H2O)
-@entity(C[-4], tot, 0)
-@logKreaction(C[-4], "(( (1.0 / log(10)) * ((41.071 * log(10)) - (-255387.176 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, C, 10.0, H+, -3.0, H2O, 8.0, e-)
-@species(HCO3-, -1, 5.4, 0)
-@logKreaction(HCO3-, "(( (1.0 / log(10)) * ((10.329 * log(10)) - (-14899.224 / 8.3144598) * ((1 / @T()) - (1 / 298.15))) ))", 1.0, CO3-2, 1.0, H+)
-//
+// especes secondaires
+@species(OH-, -1, 3.5, 0.0)
+@logKreaction(OH-, -13.999530722624318, -1.0, H+, 1.0, H2O)
+@species(O2, 0, 0, 0.1)
+@logKreaction(O2, -86.08, -4.0, H+, 2.0, H2O, -4.0, e-)
+@species(H2, 0, 0, 0.1)
+@logKreaction(H2, -3.15, 2.0, H+, 2.0, e-)
+@species(NO2-, -1, 3.0, 0.0)
+@logKreaction(NO2-, 28.57, 2.0, H+, 1.0, NO3-, -1.0, H2O, 2.0, e-)
+@species(N2, 0, 0, 0.1)
+@logKreaction(N2, 207.08, 12.0, H+, 2.0, NO3-, -6.0, H2O, 10.0, e-)
+@species(NH3, 0, 0, 0.1)
+@logKreaction(NH3, 109.83278060519034, 9.0, H+, 1.0, NO3-, -3.0, H2O, 8.0, e-)
+@species(NH4+, 1, 2.5, 0.0)
+@logKreaction(NH4+, 119.077, 10.0, H+, 1.0, NO3-, -3.0, H2O, 8.0, e-)
+@species(CaOH+, 1)
+@logKreaction(CaOH+, -12.78, -1.0, H+, 1.0, Ca+2, 1.0, H2O)
+@species(NaOH, 0, 0, 0.1)
+@logKreaction(NaOH, -14.18, -1.0, H+, 1.0, Na+, 1.0, H2O)
+@species(KOH, 0, 0, 0.1)
+@logKreaction(KOH, -14.46, -1.0, H+, 1.0, K+, 1.0, H2O)
 
 //********* Extra text 3 **************
 @class: extra_text_3(){
@@ -259,16 +293,20 @@ Exch- + Na+ = ExchNa
 @adsorptionmodelcode(Basic_surface)
 //**** End of model type code **** 
 
-@adsmodel(Exch, ads ,1.1E-3, Basic_surface)
+// CEC par kg d'eau de ref.txt (0.0011 mol de sites de ref.pqi / masse d'eau PHREEQC)
+@adsmodel(Exch, ads ,0.0011000000003130637, Basic_surface)
 @surfsite(Exch, X, 1, 0)
-@surfspecies(Exch, X, X-H, 1)
-@logKreaction(Exch_X-H, 1.0, 1.0, Exch_X, 1.0, H+)
-@surfspecies(Exch, X, X-K, 1)
-@logKreaction(Exch_X-K, 0.7, 1.0, Exch_X, 1.0, K+)
-@surfspecies(Exch, X, X-Na, 1)
-@logKreaction(Exch_X-Na, 0.0, 1.0, Exch_X, 1.0, Na+)
+// Gaines-Thomas comme PHREEQC : a_i = gamma_i * beta_i, beta_i = nu_i n_i / CEC ; gamma_i (WATEQ, charge nu_i,
+// -gamma a b de EXCHANGE_SPECIES) passe dans le log K : log K - log gamma_i ; coef 1/nu_i -> fraction de sites
+// pas de X-H : absent de phreeqc.dat
+@surfspecies(Exch, X, X-Na, 1.0)
+@logKreaction(Exch_X-Na, "(0.0 + Truesdell_A * 1.0 * sqrt(I) / (1 + Truesdell_B * 4.0 * sqrt(I)) - 0.075 * I)", 1.0, Na+, 1.0, Exch_X)
+@surfspecies(Exch, X, X-K, 1.0)
+@logKreaction(Exch_X-K, "(0.7 + Truesdell_A * 1.0 * sqrt(I) / (1 + Truesdell_B * 3.5 * sqrt(I)) - 0.015 * I)", 1.0, K+, 1.0, Exch_X)
 @surfspecies(Exch, X, X2-Ca, 0.5)
-@logKreaction(Exch_X2-Ca, 0.8, 1.0, Ca+2, 2.0, Exch_X)
+@logKreaction(Exch_X2-Ca, "(0.8 + Truesdell_A * 4.0 * sqrt(I) / (1 + Truesdell_B * 5.0 * sqrt(I)) - 0.165 * I)", 1.0, Ca+2, 2.0, Exch_X)
+@surfspecies(Exch, X, X-NH4, 1.0)
+@logKreaction(Exch_X-NH4, "(0.5999999999999943 + Truesdell_A * 1.0 * sqrt(I) / (1 + Truesdell_B * 2.5 * sqrt(I)) - 0.0 * I)", 1.0, NH4+, 1.0, Exch_X)
 //********* End of Adsorption Model Exch *************
 
 //********* End of Adsorption Models *******

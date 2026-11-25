@@ -1,0 +1,166 @@
+//********* Chimie ORCHESTRA generee par gems2orchestra.py depuis CalciteIC-dch.dat *******
+// Tous les elements, H (exces de protons) et E (exces d'electrons) compris, sont resolus sur bilan de matiere
+// (<element>.tot, mol/L) : pH et pe sont des resultats. H.tot et E.tot peuvent etre negatifs.
+@NrDigits: 12
+
+@class: extra_text_0(){
+@Calc: (1,  "watervolume = porosity * totvolume * saturation")
+}
+@extra_text_0()
+
+//********* The variables *******
+@Var: H2O.logact 0
+@GlobalVar: I .001
+@Var: T 298.15
+@Var: gasvolume 0 // pas de phase gaz : les @gas ne donnent que des pressions partielles
+@Var: porosity 1
+@Var: saturation 1
+@Var: totvolume 1
+@Var: watervolume 1
+
+//********* The phases *******
+@phase(tot)
+@phase(liter)
+@link_phase(liter, tot, "watervolume")
+@phase(solution)
+@link_phase(solution, liter, "1")
+@phase(diss)
+@link_phase(diss, solution, "1")
+@phase(solid)
+@link_phase(solid, liter, "1")
+@phase(min)
+@link_phase(min, solid, "1")
+@phase(gas_l)
+@link_phase(gas_l, liter, "1")
+@phase(gas)
+@link_phase(gas, gas_l, "(gasvolume/22.4)")
+@end_of_gui_phases:
+
+@class: extra_text_2(){
+   @scan: objects2025.txt
+// ---- tolerances alignees sur GEMS : 1e-14 (pa_DHB, residu relatif maximal des bilans de matiere) ----
+// classes de objects2025.txt redefinies avec cette tolerance (1e-4 pour I et l'activite de l'eau, 1e-13 pour les bilans,
+// 1e-8 pour les mineraux dans objects2025.txt)
+   @Class: set_ion_activity_model(name)
+   {
+      @globalVar: logI -2
+      @Calc:(1, "I = 10^logI")
+      @Var: I.eq 0
+      @Calc: (3, "I.eq = (I /{I.calc})-1")
+      @<name>(0.1)
+      @solve: unknown:(name:, logI,  delta:, 1e-2, step: , .5,  iia:, true) equation:(name:, I.eq, tol:, 1e-14)
+   }
+   @Class: calculate_water_activity(){
+      @Var: H2O_activity_equation 0
+      @Calc:(5,"H2O_activity_equation = H2O.logact - log10(1 - 0.017 * min(20, sumAqIons))" )
+      @solve: unknown:(name:, H2O.logact,  delta:, 1e-3, type:, lin, step: , .1, reldelta:, 1e-3) equation:(name:, H2O_activity_equation, tol: , 1e-14)
+   }
+   @Class: primary_entity(name, unknownvalue, phase, equationvalue){
+      @globalvar: <name>.logact <unknownvalue>
+      @globalvar: <name>.<phase> <equationvalue>
+      @solve: unknown:(name:, <name>.logact,  delta:, 1e-6, type:, lin, step: , 1, default:, <unknownvalue>) equation:(name:, <name>.<phase>, tol: , 1e-14, default:, <equationvalue>) )
+   }
+   @Class: mineral(name){
+      @entity(<name>, min)
+      @Var: <name>.un   -1e-3
+      @Var: <name>.eq    0
+      @Var: <name>.si    0
+      @Var: minTol      1e-3
+      @Var: <name>.si2   0
+      @Calc:(2,"<name>.si   = {<name>.logact}")
+      @Calc:(2,"<name>.si2  = {<name>.logact} / {<name>.logk_unit}")
+      @Calc:(2,"<name>.con = if({<name>.un} >= 0,  ({<name>.un}),   0)  ")
+      @Calc:(2,"<name>.min = {<name>.con}")
+      @Calc:(2,"<name>.eq  = if({<name>.un} < 0,     ({<name>.si2} - {<name>.un}), {<name>.si2}- {<name>.un} * minTol)")
+      @Solve: unknown:(name:, <name>.un,  delta:, 1e-6, type:, lin, step: , 5, reldelta:, 1e-2) equation:(name:, <name>.eq, tol: , 1e-14, si:, <name>.si2 )
+   }
+}
+@extra_text_2()
+
+@globalvar: I .001
+@davies()
+@calculate_water_activity()
+
+//********* The primary entities *******
+@entity(C, tot, 0)
+@primary_entity(C, -5.0, tot, 1.000000000000000e-09)
+@entity(Ca, tot, 0)
+@primary_entity(Ca, -5.0, tot, 1.000000000000000e-09)
+@entity(Cl, tot, 0)
+@primary_entity(Cl, -5.0, tot, 1.000000000000000e-09)
+@entity(H, tot, 0)
+@primary_entity(H, -9.0, tot, 0.000000000000000e+00)
+@entity(Mg, tot, 0)
+@primary_entity(Mg, -5.0, tot, 1.000000000000000e-09)
+@entity(O, tot, 0)
+@Global: H2O.logact
+@Calc:(1, "O.logact = H2O.logact")
+@primary_entity(O, H2O.logact, -0.0)
+@entity(E, tot, 0)
+@primary_entity(E, -10.0, tot, 0.000000000000000e+00)
+
+//********* The entities *******
+// Genere par gems2orchestra.py depuis CalciteIC-dch.dat
+// logK de formation a partir des especes primaires, calcules depuis G0 GEMS (T = 298.15 K)
+// Modele d'activite aqueux GEMS : code sMod 'D' (Davies -> utiliser @davies())
+
+// ---- especes primaires (chaine element -> espece maitresse, logK = 0) ----
+@species(CO3-2, -2)
+@logKreaction(CO3-2, 0, 1.0, C)
+@species(Ca+2, 2)
+@logKreaction(Ca+2, 0, 1.0, Ca)
+@species(Cl-, -1)
+@logKreaction(Cl-, 0, 1.0, Cl)
+@species(H+, 1)
+@logKreaction(H+, 0, 1.0, H)
+@species(Mg+2, 2)
+@logKreaction(Mg+2, 0, 1.0, Mg)
+@entity(H2O, liter, 55.6)
+@logKreaction(H2O, 0, 1.0, O)
+@entity(e-, diss, 0)
+@logKreaction(e-, 0, 1.0, E)
+
+// ---- especes aqueuses secondaires ----
+@species(Ca[CO3], 0)  // GEMS: Ca(CO3)@ (aq_gen), logK25 = 3.2242
+@logKreaction(Ca[CO3], 3.224240874, 1, CO3-2, 1, Ca+2)
+@species(Ca[HCO3]+, 1)  // GEMS: Ca(HCO3)+ (aq_gen), logK25 = 11.4346
+@logKreaction(Ca[HCO3]+, 11.43463368, 1, CO3-2, 1, Ca+2, 1, H+)
+@species(CaOH+, 1)  // GEMS: CaOH+ (aq_gen), logK25 = -12.7798
+@logKreaction(CaOH+, -12.77982898, 1, Ca+2, -1, H+, 1, H2O)
+@species(Mg[CO3], 0)  // GEMS: Mg(CO3)@ (aq_gen), logK25 = 2.9797
+@logKreaction(Mg[CO3], 2.979672227, 1, CO3-2, 1, Mg+2)
+@species(Mg[HCO3]+, 1)  // GEMS: Mg(HCO3)+ (aq_gen), logK25 = 11.3971
+@logKreaction(Mg[HCO3]+, 11.39714251, 1, CO3-2, 1, H+, 1, Mg+2)
+@species(MgOH+, 1)  // GEMS: MgOH+ (aq_gen), logK25 = -11.4398
+@logKreaction(MgOH+, -11.43978215, -1, H+, 1, Mg+2, 1, H2O)
+@species(CO2, 0)  // GEMS: CO2@ (aq_gen), logK25 = 16.6808
+@logKreaction(CO2, 16.68083822, 1, CO3-2, 2, H+, -1, H2O)
+@species(HCO3-, -1)  // GEMS: HCO3- (aq_gen), logK25 = 10.3290
+@logKreaction(HCO3-, 10.32899452, 1, CO3-2, 1, H+)
+@species(CH4, 0)  // GEMS: CH4@ (aq_gen), logK25 = 38.1773
+@logKreaction(CH4, 38.1772582, 1, CO3-2, 10, H+, -3, H2O, 8, e-)
+@species(ClO4-, -1)  // GEMS: ClO4- (aq_gen), logK25 = -187.7152
+@logKreaction(ClO4-, -187.715206, 1, Cl-, -8, H+, 4, H2O, -8, e-)
+@species(H2, 0)  // GEMS: H2@ (aq_gen), logK25 = -3.1060
+@logKreaction(H2, -3.105986439, 2, H+, 2, e-)
+@species(O2, 0)  // GEMS: O2@ (aq_gen), logK25 = -85.9860
+@logKreaction(O2, -85.98597631, -4, H+, 2, H2O, -4, e-)
+@species(OH-, -1)  // GEMS: OH- (aq_gen), logK25 = -13.9999
+@logKreaction(OH-, -13.99986876, -1, H+, 1, H2O)
+
+// ---- gaz (activite = pression partielle ; G0 GEMS a 1 bar) ----
+@gas(CO2[g])  // GEMS: CO2 (gas_gen), logK25 = 18.1486
+@logKreaction(CO2[g], 18.14860031, 1, CO3-2, 2, H+, -1, H2O)
+@gas(CH4[g])  // GEMS: CH4 (gas_gen), logK25 = 41.0338
+@logKreaction(CH4[g], 41.03377064, 1, CO3-2, 10, H+, -3, H2O, 8, e-)
+@gas(H2[g])  // GEMS: H2 (gas_gen), logK25 = -0.0000
+@logKreaction(H2[g], 0, 2, H+, 2, e-)
+@gas(O2[g])  // GEMS: O2 (gas_gen), logK25 = -83.1048
+@logKreaction(O2[g], -83.10476173, -4, H+, 2, H2O, -4, e-)
+
+// ---- mineraux ----
+@mineral(Calcite[s])  // GEMS: Cal (Calcite), logK25 = 8.4800, V0 = 36.934 cm3/mol
+@logKreaction(Calcite[s], 8.480013487, 1, CO3-2, 1, Ca+2)
+@mineral(Dolomite-dis[s])  // GEMS: Dis-Dol (Dolomite-dis), logK25 = 16.5399, V0 = 64.390 cm3/mol
+@logKreaction(Dolomite-dis[s], 16.53991552, 2, CO3-2, 1, Ca+2, 1, Mg+2)
+

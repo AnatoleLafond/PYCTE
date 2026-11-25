@@ -32,10 +32,10 @@ END
 CHEMISTRY
   PRIMARY_SPECIES
     H+
-    #CaX2pycte
-    #KXpycte
-    #NaXpycte
-    #NH4Xpycte
+    #Exch_X2-Capycte
+    #Exch_X-Kpycte
+    #Exch_X-Napycte
+    #Exch_X-NH4pycte
     Ca+2pycte
     CaOH+pycte
     Cl-pycte
@@ -51,6 +51,7 @@ CHEMISTRY
     NO3-pycte
     O2pycte
     OH-pycte
+	KOHpycte
   /
   SECONDARY_SPECIES
     OH-
@@ -77,6 +78,7 @@ CHEMISTRY
     H+pycte
     H2pycte
     K+pycte
+	KOHpycte
     N2pycte
     Na+pycte
     NaOHpycte
@@ -94,7 +96,7 @@ REFERENCE_POROSITY 1
 # == discretization ===========================================================
 GRID
   TYPE STRUCTURED
-  NXYZ 41 1 1
+  NXYZ 40 1 1
   BOUNDS
     0.d0 0.d0 0.d0
     0.08d0 1.d0 1.d0
@@ -109,7 +111,11 @@ MATERIAL_PROPERTY HD
   ID 1
   POROSITY 1 # 0.61
   TORTUOSITY 1.0
-  LONGITUDINAL_DISPERSIVITY 0.002
+  # alpha = 0.002 m dans ref.pqi. Le transport GIRT est upwind implicite d'ordre 1 : il ajoute une
+  # dispersivite numerique ~ dx/2 + v.dt/2 = 0.001 + 2.778e-6*20/2 = 0.00103 m (dx = 0.002 m, dt <= 20 s).
+  # Dispersivite physique entree = 0.002 - 0.00103 pour que la dispersion totale soit celle de PHREEQC.
+  # Revenir a 0.002 pour la dispersivite physique seule.
+  LONGITUDINAL_DISPERSIVITY 0.00097
   #PERMEABILITY
   #  PERM_ISO 5.43d-13
   /
@@ -117,7 +123,7 @@ MATERIAL_PROPERTY HD
 # == output ===================================================================
 OUTPUT
   TIMES s 720
-  FORMAT TECPLOT POINT
+  FORMAT HDF5
 END
 # == times ====================================================================
 TIME
@@ -157,14 +163,17 @@ TRANSPORT_CONDITION Initial
     0.d0 Initial
   /
 END
+# sortie : flux diffusif nul, seule l'advection sort (= flux de PHREEQC, closed/Outflow de nativeTransport)
 TRANSPORT_CONDITION east
-  TYPE DIRICHLET
+  TYPE ZERO_GRADIENT
   CONSTRAINT_LIST
     0.d0 Initial
   /
 END
+# entree : condition de 3e type (Robin / Danckwerts) en flux entrant, v.c - D.dc/dx = v.c_Inlet1
+# (= flux de PHREEQC et de nativeTransport) ; DIRICHLET ajoutait un flux dispersif sur la demi-maille
 TRANSPORT_CONDITION west
-  TYPE DIRICHLET
+  TYPE ZERO_GRADIENT
   CONSTRAINT_LIST
     0.d0    Inlet1
   /
@@ -190,16 +199,17 @@ END
 # == transport constraints ====================================================
 CONSTRAINT Initial
   CONCENTRATIONS
-    #CaX2pycte   1.d-40  T DATASET CaX2pycte_init
-    #KXpycte     1.d-40  T DATASET KXpycte_init
-    #NaXpycte    1.d-40  T DATASET NaXpycte_init
-    #NH4Xpycte   1.d-40  T DATASET NH4Xpycte_init
+    #Exch_X2-Capycte   1.d-40  T DATASET Exch_X2-Capycte_init
+    #Exch_X-Kpycte     1.d-40  T DATASET Exch_X-Kpycte_init
+    #Exch_X-Napycte    1.d-40  T DATASET Exch_X-Napycte_init
+    #Exch_X-NH4pycte   1.d-40  T DATASET Exch_X-NH4pycte_init
     Ca+2pycte   0.6d-3  T DATASET Capycte_init
     CaOH+pycte  1.d-40  T DATASET CaOHpycte_init
     Cl-pycte    1.3d-3  T DATASET Clpycte_init
     H+pycte     1.d-40  T DATASET Hpycte_init
     H2pycte     1.d-40  T DATASET H2pycte_init
     K+pycte     1.d-40  T DATASET Kpycte_init
+	KOHpycte    1.d-40  T DATASET KOHpycte_init
     N2pycte     1.d-40  T DATASET N2pycte_init
     Na+pycte    1.d-40  T DATASET Napycte_init
     NaOHpycte   1.d-40  T DATASET NaOHpycte_init
@@ -295,16 +305,20 @@ DATASET OHpycte_init
   HDF5_DATASET_NAME OH-i
   FILENAME testpycte.h5
 END
+DATASET KOHpycte_init
+  HDF5_DATASET_NAME KOHi
+  FILENAME testpycte.h5
+END
 # == inlet ====================================================================
 CONSTRAINT Inlet1
   CONCENTRATIONS
-    #CaX2pycte   1.d-40 T
-    #KXpycte     1.d-40 T
-    #NaXpycte    1.d-40 T
-    #NH4Xpycte   1.d-40 T
+    #Exch_X2-Capycte   1.d-40 T
+    #Exch_X-Kpycte     1.d-40 T
+    #Exch_X-Napycte    1.d-40 T
+    #Exch_X-NH4pycte   1.d-40 T
     Ca+2pycte   0.6d-3 T
     CaOH+pycte  1.d-40 T
-    Cl-pycte    1.3d-3 T
+    Cl-pycte    1.2d-3 T
     H+pycte     1.d-40 T
     H2pycte     1.d-40 T
     K+pycte     1.d-40 T
@@ -318,6 +332,7 @@ CONSTRAINT Inlet1
     O2pycte     1.d-40 T
     OH-pycte    1.d-40 T
     H+          1.d-7  T
+	KOHpycte    1.d-40 T
 
   /
 END

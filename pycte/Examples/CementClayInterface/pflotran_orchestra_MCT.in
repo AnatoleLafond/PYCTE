@@ -1,0 +1,264 @@
+# Cement / clay interface benchmark, ORCHESTRA, multi-compound transport (totals) : PFLOTRAN transports, pycte computes the chemistry.
+# Every transported column of pycte is a neutral tracer <name>pycte of pflotranDB.txt (no reaction, no activity).
+# A column that can be negative is split : <name>pycte (positive part) and <name>_negpycte (negative part).
+# Pore diffusion coefficient = DIFFUSION_COEFFICIENT * TORTUOSITY : cement 3.38e-11, clay 1.44e-10 m2/s.
+# x = 0 closed (no flux), x = 10.3 m : clay water (Dirichlet, constraint Clay = secondBoundary of pycte).
+SIMULATION
+  SIMULATION_TYPE SUBSURFACE
+  PROCESS_MODELS
+    SUBSURFACE_TRANSPORT transport
+      MODE GIRT
+    /
+  /
+END
+SUBSURFACE
+# == numerical methods ========================================================
+NUMERICAL_METHODS TRANSPORT
+  TIMESTEPPER
+    TS_ACCELERATION 8
+    MAX_STEPS 100000
+  /
+  NEWTON_SOLVER
+    PRECONDITIONER_MATRIX_TYPE AIJ
+    RTOL 1.d-10
+    ATOL 1.d-50
+    STOL 1.d-12
+  /
+  LINEAR_SOLVER
+    SOLVER DIRECT
+  /
+END
+SPECIFIED_VELOCITY
+  UNIFORM? YES
+  DATASET 0.d0 0.d0 0.d0 m/s
+END
+# == chemistry ================================================================
+CHEMISTRY
+  PRIMARY_SPECIES
+    Alpycte
+    Cpycte
+    Capycte
+    Clpycte
+    Epycte
+    E_negpycte
+    Fepycte
+    Hpycte
+    H_negpycte
+    Kpycte
+    Mgpycte
+    Napycte
+    Spycte
+    Sipycte
+    Srpycte
+  /
+  DATABASE pflotranDB.txt
+  ACTIVITY_COEFFICIENTS OFF
+  MOLAL
+  OUTPUT
+    Alpycte
+    Cpycte
+    Capycte
+    Clpycte
+    Epycte
+    E_negpycte
+    Fepycte
+    Hpycte
+    H_negpycte
+    Kpycte
+    Mgpycte
+    Napycte
+    Spycte
+    Sipycte
+    Srpycte
+    TOTAL
+  /
+END
+# == discretization (meshing of pycte : 15 + 35 + 10 + 30 cells, 10.3 m) ======
+GRID
+  TYPE STRUCTURED
+  NXYZ 90 1 1
+  DXYZ
+    15*0.02d0 35*0.04285714285714286 10*0.1d0 30*0.25d0
+    1.d0
+    1.d0
+  /
+END
+# == fluid properties =========================================================
+FLUID_PROPERTY
+  DIFFUSION_COEFFICIENT 1e-09
+END
+# == material properties ======================================================
+MATERIAL_PROPERTY cement
+  ID 1
+  POROSITY 0.13
+  TORTUOSITY 0.0338
+  LONGITUDINAL_DISPERSIVITY 0.d0
+END
+MATERIAL_PROPERTY clay
+  ID 2
+  POROSITY 0.18
+  TORTUOSITY 0.144
+  LONGITUDINAL_DISPERSIVITY 0.d0
+END
+# == output ===================================================================
+OUTPUT
+  TIMES y 1
+  FORMAT HDF5
+END
+# == times (end time and output time rewritten by pycte at every coupling step) =
+TIME
+  FINAL_TIME 1 y
+  INITIAL_TIMESTEP_SIZE 1.d-3 y
+  MAXIMUM_TIMESTEP_SIZE 0.02 y
+END
+# == regions ==================================================================
+REGION all
+  COORDINATES
+    -1.d20 -1.d20 -1.d20
+    1.d20 1.d20 1.d20
+  /
+END
+REGION cement
+  BLOCK 1 15 1 1 1 1
+END
+REGION clay
+  BLOCK 16 90 1 1 1 1
+END
+REGION east
+  FACE EAST
+  COORDINATES
+    10.3d0 0.d0 0.d0
+    10.3d0 1.d0 1.d0
+  /
+END
+# == transport conditions =====================================================
+TRANSPORT_CONDITION Initial
+  TYPE DIRICHLET
+  CONSTRAINT_LIST
+    0.d0 Initial
+  /
+END
+TRANSPORT_CONDITION east
+  TYPE DIRICHLET
+  CONSTRAINT_LIST
+    0.d0 Clay
+  /
+END
+# == couplers =================================================================
+INITIAL_CONDITION Initial
+  TRANSPORT_CONDITION Initial
+  REGION all
+END
+BOUNDARY_CONDITION east
+  TRANSPORT_CONDITION east
+  REGION east
+END
+# == stratigraphy =============================================================
+STRATA
+  MATERIAL cement
+  REGION cement
+END
+STRATA
+  MATERIAL clay
+  REGION clay
+END
+# == constraints : initial state written by pycte in testpycte.h5 (<name>i) ===
+CONSTRAINT Initial
+  CONCENTRATIONS
+    Alpycte     1.d-40 T DATASET ic001
+    Cpycte      1.d-40 T DATASET ic002
+    Capycte     1.d-40 T DATASET ic003
+    Clpycte     1.d-40 T DATASET ic004
+    Epycte      1.d-40 T DATASET ic005
+    E_negpycte  1.d-40 T DATASET ic006
+    Fepycte     1.d-40 T DATASET ic007
+    Hpycte      1.d-40 T DATASET ic008
+    H_negpycte  1.d-40 T DATASET ic009
+    Kpycte      1.d-40 T DATASET ic010
+    Mgpycte     1.d-40 T DATASET ic011
+    Napycte     1.d-40 T DATASET ic012
+    Spycte      1.d-40 T DATASET ic013
+    Sipycte     1.d-40 T DATASET ic014
+    Srpycte     1.d-40 T DATASET ic015
+  /
+END
+DATASET ic001
+  HDF5_DATASET_NAME Ali
+  FILENAME testpycte.h5
+END
+DATASET ic002
+  HDF5_DATASET_NAME Ci
+  FILENAME testpycte.h5
+END
+DATASET ic003
+  HDF5_DATASET_NAME Cai
+  FILENAME testpycte.h5
+END
+DATASET ic004
+  HDF5_DATASET_NAME Cli
+  FILENAME testpycte.h5
+END
+DATASET ic005
+  HDF5_DATASET_NAME Ei
+  FILENAME testpycte.h5
+END
+DATASET ic006
+  HDF5_DATASET_NAME E_negi
+  FILENAME testpycte.h5
+END
+DATASET ic007
+  HDF5_DATASET_NAME Fei
+  FILENAME testpycte.h5
+END
+DATASET ic008
+  HDF5_DATASET_NAME Hi
+  FILENAME testpycte.h5
+END
+DATASET ic009
+  HDF5_DATASET_NAME H_negi
+  FILENAME testpycte.h5
+END
+DATASET ic010
+  HDF5_DATASET_NAME Ki
+  FILENAME testpycte.h5
+END
+DATASET ic011
+  HDF5_DATASET_NAME Mgi
+  FILENAME testpycte.h5
+END
+DATASET ic012
+  HDF5_DATASET_NAME Nai
+  FILENAME testpycte.h5
+END
+DATASET ic013
+  HDF5_DATASET_NAME Si
+  FILENAME testpycte.h5
+END
+DATASET ic014
+  HDF5_DATASET_NAME Sii
+  FILENAME testpycte.h5
+END
+DATASET ic015
+  HDF5_DATASET_NAME Sri
+  FILENAME testpycte.h5
+END
+CONSTRAINT Clay
+  CONCENTRATIONS
+    Alpycte     8.52e-08 T
+    Cpycte      0.0040530702 T
+    Capycte     0.00771359589 T
+    Clpycte     0.0412 T
+    Epycte      1e-40 T
+    E_negpycte  8.48323151e-10 T
+    Fepycte     6.11213814e-05 T
+    Hpycte      0.00455772125 T
+    H_negpycte  1e-40 T
+    Kpycte      0.000511 T
+    Mgpycte     0.00514985287 T
+    Napycte     0.0401 T
+    Spycte      0.0111081565 T
+    Sipycte     0.00018 T
+    Srpycte     0.000252156576 T
+  /
+END
+END_SUBSURFACE

@@ -1,0 +1,11 @@
+ORCHESTRA chemical solver, C++ version, with its pybind11 interface (PyORCHESTRA)
+Copyright 2023, J.C.L. (Hans) Meeussen
+Licensed under the Apache License, Version 2.0 (see LICENSE in this folder).
+
+Source: https://github.com/hansmeeussen/PyORCHESTRA, commit 1958d2e (2026-10-17), folder src/.
+Built with pycte as the extension module pycte.PyORCHESTRA (see setup.py at the root of pycte).
+
+Changes made for pycte:
+- pybindmain.cpp: py::arg(...).noconvert() of set_and_calculate_multi_2 moved from the method definition (which does
+  not compile) to its .def(...) binding; see pybindmain_fix.diff.
+- orchestrabenchmark.cpp and testorchestra2.cpp (stand-alone test programs) are not included.

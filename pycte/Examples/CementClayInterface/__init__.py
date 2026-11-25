@@ -1,19 +1,37 @@
 
+"""Cement / clay interface benchmark: 15 cells of cement paste, 75 cells of clay, diffusion only.
+
+    pycte.load("CementClayInterface")    # PhreeqC, multi-compound transport
+    pycte.MCT(False)                     # multi-species transport
+    pycte.chemistryModule("orchestra")   # or "phreeqcrm", "nativeSpeciation"
+    pycte.diffusion("NernstPlanck")      # Nernst-Planck instead of Fick (species transported, MCT ignored)
+    pycte.transportModule("pflotran")    # PFLOTRAN (Fick) : pflotran_<chemistry>_<MCT|MS>.in, tracers of pflotranDB.txt
+    pycte.transportModule("comsol")      # COMSOL (Fick) : comsol_<chemistry>_<MCT|MS>.mph
+
+The cement water of CI_phreeqc.txt carries a charge imbalance of +0.0695 eq/kgw. The Nernst-Planck initial
+conditions (CI_*_NP.txt) add that amount of OH- to the cement water and re-equilibrate it with its phases
+(PhreeqC, pH 13.61 -> 13.66); the clay is unchanged. At zero current the charge of a cell is conserved, an
+imbalance would stay in the cement.
+
+Nernst-Planck: same porosities, De = porosity * tortuosity * Dw(species), Dw from phreeqc.dat (PHREEQC 3,
+phreeqc_rates.dat lineage, 25 °C; 1e-9 m2/s, the PHREEQC default, for the species without -dw), tortuosity
+= Fick pore coefficient / Dw(H2O), so that water diffuses as in the Fick case.
+"""
+import re
 from pathlib import Path
 
 import pandas as pd
 
 _DIR = Path(__file__).parent
 
-# mots-cles propres a cet exemple, avec leur valeur par defaut : pycte.MCT(True | False)
-OPTIONS = {"MCT": True}
+OPTIONS = {"MCT": True, "diffusion": "Fick"}
 
-_porosity = [0.13] * 15 + [0.18] * 75       # beton (0.3 m) puis argilite
+_porosity = [0.13] * 15 + [0.18] * 75
 
 SETTINGS = dict(
     description="cement clay interface benchmark",
-    chemModule="phreeqc",
-    trsptModule="nativeTransport",
+    chemistryModule="phreeqc",
+    transportModule="nativeTransport",
     operatorSplitting="snia",
     timeUnit="y",
     maxTime=1e5,
@@ -24,12 +42,11 @@ SETTINGS = dict(
     porosity=_porosity,
     diffCoeff=[3.38e-11] * 15 + [1.44e-10] * 75,
     boundaryConditions=["closed", "constant"],
-    output={"coupling": [1e3, 1e4, 1e5]},
-    PIDnbr=1,
-    PIDextract=1,
+    output={"stepEnd": [1e3, 1e4, 1e5]},
+    speciationThreads=1,
+    transportThreads=1,
 )
 
-# ---- PhreeqC (noms de la base ThermoChimie PhreeqC)
 
 _aqueousPhreeqC = [
     'OH-', 'H+', 'H2O', 'Al(OH)4-', 'NaAl(OH)4', 'Al(OH)3', 'Al(OH)2+', 'Al(OH)+2', 'AlH3SiO4+2', 'Al+3',
@@ -52,7 +69,6 @@ _phasesPhreeqC = [
     'Portlandite', 'Pyrite', 'Pyrrhotite', 'Saponite-FeCa', 'SiO2(am)', 'Siderite', 'Stratlingite',
 ]
 
-# multi-composes : totaux par etat redox, H, O et chargebalance au bord x = L
 
 _secondBoundaryPhreeqCMCT = {
     'Al': 8.519998902e-08, 'C(+4)': 0.0040527660588813574, 'C(-4)': 3.36048e-17, 'Ca': 0.007713414966080056,
@@ -64,7 +80,6 @@ _secondBoundaryPhreeqCMCT = {
 }
 
 
-# ---- ORCHESTRA (noms de chemistry1.inp : [] au lieu de (), phases en [s])
 
 _crossOrchestra = [
     'chargebalance', 'totvolume', 'A', 'poreD', 'dx', 'porosity', 'saturation', 'pH', 'pe',
@@ -135,20 +150,19 @@ _secondBoundaryOrchestraMS = {
 
 
 def _phreeqc(MCT):
-    systemSpeciation = ["chargebalance", "pH", "pe"] + _aqueousPhreeqC + _phasesPhreeqC
-    transported = [s for s in systemSpeciation if s not in _phasesPhreeqC + ["pH", "pe"]]
+    coupledVariables = ["chargebalance", "pH", "pe"] + _aqueousPhreeqC + _phasesPhreeqC
+    transported = [s for s in coupledVariables if s not in _phasesPhreeqC + ["pH", "pe"]]
     initialConditions = _DIR / "CI_phreeqc.txt"
     if MCT:
         secondBoundary = _secondBoundaryPhreeqCMCT
     else:
-        # multi-especes : au bord x = L, les especes de la derniere maille des conditions initiales
         ci = pd.read_csv(initialConditions, sep=r"\s+", comment="%", header=None)
-        ci.columns = ["x"] + systemSpeciation
+        ci.columns = ["x"] + coupledVariables
         secondBoundary = {s: float(ci[s].iloc[-1]) for s in transported}
     return dict(
         chemPath=str(_DIR / "PHREEQC_Davies_e-_ThermoChimie_v12a.dat"),
         initialConditions=str(initialConditions),
-        systemSpeciation=systemSpeciation,
+        coupledVariables=coupledVariables,
         phases=_phasesPhreeqC,
         transportedSpecies=transported,
         crossDependencies={"speciation": ["chargebalance", "pH", "pe"]},
@@ -166,7 +180,7 @@ def _orchestra(MCT):
         inputVariableOrchestra=_crossOrchestra + [f"{e}.literbulk" for e in _elementsOrchestra],
         outputVariableOrchestra=(_crossOrchestra + [f"{s}.diss" if MCT else f"{s}.con" for s in aqueous]
                                  + [f"{p}.con" for p in _phasesOrchestra]),
-        systemSpeciation=_crossOrchestra + aqueous + _phasesOrchestra,
+        coupledVariables=_crossOrchestra + aqueous + _phasesOrchestra,
         colAq=aqueous,
         transportedSpecies=aqueous,
         crossDependencies={"speciation": _crossOrchestra},
@@ -177,19 +191,92 @@ def _orchestra(MCT):
                         secondBoundary=_secondBoundaryOrchestraMCT)
     else:
         settings.update(initialConditions=str(_DIR / "CI_orchestra_multiSpecies.txt"),
-                        systemSpecies=aqueous + _phasesOrchestra,
                         secondBoundary=_secondBoundaryOrchestraMS)
     return settings
 
 
-def variant(chemModule, trsptModule, MCT):
+_elementsNative = ['Al', 'C', 'Ca', 'Cl', 'E', 'Fe', 'K', 'Mg', 'Na', 'S', 'Si', 'Sr']
+
+
+def _native(MCT):
+    settings = _phreeqc(False)
+    transported = [s for s in _aqueousPhreeqC if s != 'H2O']
+    settings.update(
+        transportedSpecies=transported,
+        secondBoundary={s: settings['secondBoundary'][s] for s in transported},
+        chemistry={'elements': _elementsNative, 'minerals': _phasesPhreeqC, 'exchanger': None,
+                   'diagnostics': {'pH': 'pH', 'pe': 'pe'}},
+        MultiCompoundTransport=MCT,
+    )
+    for key in ('phases', 'crossDependencies', 'solMod') + (('transportedSpecies',) if MCT else ()):
+        settings.pop(key)
+    return settings
+
+
+_DW_H2O = 2.299e-9
+_DW_DEFAULT = 1e-9
+_DW = {
+    'OH-': 5.27e-09, 'H+': 9.31e-09, 'H2O': 2.299e-09, 'Al(OH)4-': 1.04e-09, 'Al+3': 5.59e-10, 'CH4': 1.85e-09,
+    'Na(CO3)-': 5.85e-10, 'CO3-2': 9.55e-10, 'CaCO3': 4.46e-10, 'HCO3-': 1.18e-09, 'Na(HCO3)': 6.73e-10,
+    'Ca(HCO3)+': 5.06e-10, 'Mg(CO3)': 4.21e-10, 'CO2': 1.92e-09, 'Mg(HCO3)+': 4.78e-10, 'Ca+2': 7.92e-10,
+    'Ca(SO4)': 4.71e-10, 'Cl-': 2.033e-09, 'Fe+2': 7.19e-10, 'H2': 5.13e-09, 'K+': 1.96e-09, 'K(SO4)-': 9e-10,
+    'Mg+2': 7.05e-10, 'Mg(SO4)': 4.45e-10, 'Na+': 1.33e-09, 'Na(SO4)-': 1.13e-09, 'O2': 2.35e-09, 'HS-': 1.73e-09,
+    'S-2': 7.31e-10, 'H2S': 2.1e-09, 'SO4-2': 1.07e-09, 'H(SO4)-': 1.22e-09, 'H4(SiO4)': 1.1e-09, 'Sr+2': 7.94e-10,
+}
+
+
+def _valence(species):
+    """Charge of a species from its name (trailing sign and number)."""
+    sign = re.search(r'([+-])(\d*)$', species)
+    return 0 if sign is None else int(sign.group(2) or 1) * (1 if sign.group(1) == '+' else -1)
+
+
+def _nernstPlanck(settings, orchestra):
+    """Nernst-Planck settings: Dw per species, tortuosity giving the Fick pore coefficient to water."""
+    transported = [s for s in settings['transportedSpecies'] if s != 'chargebalance']
+    name = (lambda s: s.replace('(', '[').replace(')', ']')) if orchestra else (lambda s: s)
+    dw = {name(s): d for s, d in _DW.items()}
+    return dict(
+        initialConditions=str(_DIR / ("CI_orchestra_multiSpecies_NP.txt" if orchestra else "CI_phreeqc_NP.txt")),
+        ADE=False,
+        NernstPlanck=True,
+        diffCoeff=_DW_DEFAULT,
+        tortuosity=[d / _DW_H2O for d in SETTINGS['diffCoeff']],
+        transportedSpecies=transported,
+        speciesDiffCoeff={s: dw[s] for s in transported if s in dw},
+        speciesValence={s: _valence(s) for s in transported},
+        secondBoundary={s: v for s, v in settings['secondBoundary'].items() if s in transported},
+    )
+
+
+_TRANSPORT_INPUT = {"PhreeqC": "phreeqc", "PhreeqcRM": "phreeqc", "ORCHESTRA": "orchestra",
+                   "nativeSpeciation": "nativeSpeciation"}
+
+
+def variant(chemistryModule, transportModule, MCT, diffusion):
+    nernstPlanck = str(diffusion).replace('-', '').replace(' ', '').lower() == "nernstplanck"
+    if not nernstPlanck and str(diffusion).lower() != "fick":
+        raise ValueError(f"diffusion is 'Fick' or 'NernstPlanck', not {diffusion!r}")
+    if nernstPlanck and transportModule != "nativeTransport":
+        raise ValueError(f"diffusion = 'NernstPlanck' is available with transportModule 'nativeTransport' only, "
+                         f"not {transportModule!r}")
+    MCT = MCT and not nernstPlanck
     mode = "multi-compound" if MCT else "multi-species"
-    if chemModule == "PhreeqC":
+    if chemistryModule in ("PhreeqC", "PhreeqcRM"):
         settings = _phreeqc(MCT)
-    elif chemModule == "ORCHESTRA":
+    elif chemistryModule == "ORCHESTRA":
         settings = _orchestra(MCT)
+    elif chemistryModule == "nativeSpeciation":
+        settings = _native(MCT)
     else:
-        raise ValueError(f"CementClayInterface is available with chemModule 'phreeqc' or 'orchestra', "
-                         f"not {chemModule!r}")
-    settings["description"] = f"cement clay interface benchmark, {chemModule}, {mode} transport"
+        raise ValueError(f"CementClayInterface is available with chemistryModule 'phreeqc', 'phreeqcrm', 'orchestra' or "
+                         f"'nativeSpeciation', "
+                         f"not {chemistryModule!r}")
+    if nernstPlanck:
+        settings.update(_nernstPlanck(settings, chemistryModule == "ORCHESTRA"))
+        mode += " Nernst-Planck"
+    if transportModule in ("PFLOTRAN", "COMSOL"):
+        stem = f"{transportModule.lower()}_{_TRANSPORT_INPUT[chemistryModule]}_{'MCT' if MCT else 'MS'}"
+        settings["trsptPath"] = str(_DIR / (stem + (".in" if transportModule == "PFLOTRAN" else ".mph")))
+    settings["description"] = f"cement clay interface benchmark, {chemistryModule}, {mode} transport"
     return settings

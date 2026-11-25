@@ -1,36 +1,5 @@
-"""
-Parse @logKreaction(...) lines from an ORCHESTRA/PHREEQC-style .inp
-database and build a dict of the form:
-    {'Ca[HCO3]+': {'CO3-2': 1.0, 'Ca+2': 1.0, 'H+': 1.0}, ...}
-
-Handles both variants found in the file:
-    @logKreaction(Name, 0, 1.0, Reactant)                        <- bare number logK
-    @logKreaction(Name, "expr(with,parens)", 1.0, R1, -2.0, R2)  <- quoted logK expr
-
-ADSORPTION / ION EXCHANGE
--------------------------
-The chemical elements are declared with @primary_entity:
-
-    @primary_entity(Ca, -9.0, tot, 1.0E-9)
-
-but an exchange/adsorption site is declared by the adsorption model block:
-
-    @adsmodel(Exch, ads, 1.1E-3, Basic_surface)   <- site density (CEC)
-    @surfsite(Exch, X, 1, 0)                      <- the site is named Exch_X
-    @surfspecies(Exch, X, X-Na, 1)
-    @logKreaction(Exch_X-Na, 0.0, 1.0, Exch_X, 1.0, Na+)
-
-Exch_X is a master unknown exactly like Ca or Na, it is simply not written
-with @primary_entity. build_components() reads BOTH declarations, so Exch_X
-is a normal component and the sorbed species (Exch_X-Na, Exch_X2-Ca, ...)
-are decomposed like any other species:
-
-    Exch_X-Na  -> {'Exch_X': 1.0, 'Na': 1.0}
-    Exch_X2-Ca -> {'Exch_X': 2.0, 'Ca': 1.0}
-
-Usage:
-    python parse_reactions.py path/to/chemistry1.inp
-"""
+"""Parser of ORCHESTRA .inp databases: reactions, components (elements, sorption sites), stoichiometric matrix."""
+import os
 import re
 import sys
 import json
@@ -44,9 +13,7 @@ except ImportError:
 
 
 def split_top_level(s):
-    """Split a string on commas that are NOT inside quotes or nested
-    parentheses (the logK expression is quoted and may itself contain
-    parentheses/commas)."""
+    """Splits on commas outside quotes and parentheses."""
     parts = []
     buf = []
     depth = 0
@@ -73,9 +40,7 @@ def split_top_level(s):
 
 
 def strip_comments(text):
-    """Remove '// ...' end-of-line comments, but never inside a quoted
-    string. Without this, the commented-out PHREEQC block of the adsorption
-    model (EXCHANGE_SPECIES ...) can pollute the parse."""
+    """Removes '//' comments outside quoted strings."""
     out, in_quotes, i, n = [], False, 0, len(text)
     while i < n:
         ch = text[i]
@@ -93,9 +58,7 @@ def strip_comments(text):
 
 
 def parse_tagged_calls(text, tag):
-    """Find every @<tag>(...) call in the text (balancing parentheses so
-    the call can safely span/contain nested parens, e.g. logK expressions)
-    and return the full argument string for each occurrence."""
+    """Argument strings of every @<tag>(...) call."""
     calls = []
     for m in re.finditer(r'@' + re.escape(tag) + r'\s*\(', text):
         start = m.end()
@@ -129,9 +92,26 @@ def _to_number_if_possible(s):
         return s
 
 
+_texts = {}
+
+
 def _read(filepath):
-    with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
-        return strip_comments(f.read())
+    """Text of the .inp file without its comments, read once per file version (path, modification time, size) instead
+    of once per builder."""
+    path = os.path.abspath(str(filepath))
+    try:
+        key = (path, os.path.getmtime(path), os.path.getsize(path))
+    except OSError:
+        key = None
+    text = _texts.get(key) if key is not None else None
+    if text is None:
+        with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+            text = strip_comments(f.read())
+        if key is not None:
+            if len(_texts) >= 8:
+                _texts.clear()
+            _texts[key] = text
+    return text
 
 
 def build_reaction_dict(filepath):
@@ -160,15 +140,7 @@ def build_reaction_dict(filepath):
 
 
 def build_primary_entities(filepath):
-    """Parse every @primary_entity(...) call -> the chemical elements only.
-
-        @primary_entity(Ca, -9.0, tot, 1.0E-9)
-        @primary_entity(H, pH, 7.0)
-        @primary_entity(O, H2O.logact, -0.0)
-    ->  {'Ca': [-9.0, 'tot', 1e-09], 'H': ['pH', 7.0], 'O': ['H2O.logact', -0.0]}
-
-    NOTE: exchange/adsorption sites are NOT here -> use build_components().
-    """
+    """@primary_entity calls -> {element: arguments} (sites excluded)."""
     text = _read(filepath)
     primary_entities = {}
     for call in parse_tagged_calls(text, 'primary_entity'):
@@ -181,12 +153,7 @@ def build_primary_entities(filepath):
 
 
 def build_adsorption_models(filepath):
-    """@adsmodel(name, parent_phase, concentration, model_type)
-
-        @adsmodel(Exch, ads, 1.1E-3, Basic_surface)
-    ->  {'Exch': {'phase': 'ads', 'concentration': 0.0011,
-                  'type': 'Basic_surface'}}
-    """
+    """@adsmodel calls -> {model: {phase, concentration, type}}."""
     text = _read(filepath)
     models = {}
     for call in parse_tagged_calls(text, 'adsmodel'):
@@ -202,16 +169,7 @@ def build_adsorption_models(filepath):
 
 
 def build_surface_sites(filepath):
-    """@surfsite(model, site, nsites, charge) -> component "<model>_<site>".
-
-        @adsmodel(Exch, ads, 1.1E-3, Basic_surface)
-        @surfsite(Exch, X, 1, 0)
-    ->  {'Exch_X': {'model': 'Exch', 'site': 'X', 'nsites': 1.0, 'charge': 0.0,
-                    'phase': 'ads', 'concentration': 0.0011, 'total': 0.0011}}
-
-    'total' = concentration x nsites is the site density available for the
-    mass balance (the CEC for an ion exchanger).
-    """
+    """@surfsite calls -> {<model>_<site>: properties, with the 'total' site density}."""
     text = _read(filepath)
     models = build_adsorption_models(filepath)
     sites = {}
@@ -234,16 +192,7 @@ def build_surface_sites(filepath):
 
 
 def build_surface_species(filepath):
-    """@surfspecies(model, site, name, nsites) -> the SORBED species.
-
-        @surfspecies(Exch, X, X2-Ca, 0.5)
-    ->  {'Exch_X2-Ca': {'model': 'Exch', 'site': 'X', 'raw': 'X2-Ca',
-                        'nsites': 0.5}}
-
-    The stoichiometry itself comes from the matching @logKreaction; this
-    tells you WHICH species are sorbed (to sum them, plot them, exclude
-    them from transport, ...).
-    """
+    """@surfspecies calls -> {sorbed species: properties}."""
     text = _read(filepath)
     out = {}
     for call in parse_tagged_calls(text, 'surfspecies'):
@@ -258,16 +207,7 @@ def build_surface_species(filepath):
 
 
 def build_components(filepath):
-    """All the master unknowns of the model = @primary_entity + @surfsite.
-
-        {'C': {'kind': 'element', ...}, ..., 'Exch_X': {'kind': 'site', ...}}
-
-    THIS is what you pass to build_stoich_matrix() instead of
-    build_primary_entities(). Filter on 'kind' to separate the mobile
-    (aqueous) components from the immobile sites:
-
-        mobile = [c for c, v in comps.items() if v['kind'] == 'element']
-    """
+    """Every master unknown: @primary_entity elements and @surfsite sites."""
     comps = {}
     for name, args in build_primary_entities(filepath).items():
         comps[name] = {'kind': 'element', 'args': args}
@@ -280,25 +220,7 @@ def build_components(filepath):
 
 
 def site_column_map(components):
-    """{site: (column_name, factor)} for every adsorption/exchange site.
-
-    Generic rule, deduced from @adsmodel / @surfsite:
-
-      * model with ONE site  -> the column carries the MODEL name and the
-        coefficient is divided by nsites, so that summing the column gives
-        the model concentration (the 3rd argument of @adsmodel, e.g. Xc_CEC):
-
-            @adsmodel(Xc, ads, Xc_CEC, Basic_surface)
-            @surfsite(Xc, X, 1, 0)
-            Xc_X2-Sr = 2 Xc_X + Sr+2      ->  {'Sr': 1, 'Xc': 2}
-
-      * model with SEVERAL sites -> one column per site, unchanged
-        (Hfo_wOH, Hfo_sOH, ...). Merging them would count the model once
-        per site, i.e. several times.
-
-    The site name is also kept if the model name already exists as another
-    component (no collision possible).
-    """
+    """{site: (column, factor)}: a single-site model uses its model name and coef / nsites."""
     sites = {n: v for n, v in components.items() if v.get('kind') == 'site'}
     per_model = {}
     for name, info in sites.items():
@@ -318,17 +240,7 @@ def site_column_map(components):
 
 
 def build_alias_map(filepath, extra=None):
-    """PHREEQC-style name -> ORCHESTRA name, deduced from the .inp itself.
-
-    ORCHESTRA writes a sorbed species  <model>_<site><n>-<cation>
-    where PHREEQC writes               <cation><site><n>
-        @surfspecies(Exch, X, X2-Ca, 0.5) -> Exch_X2-Ca  <-> CaX2
-        @surfspecies(Exch, X, X-Na,  1)   -> Exch_X-Na   <-> NaX
-        @surfsite(Exch, X, 1, 0)          -> Exch_X      <-> X / X- / x
-
-    Nothing is hard-coded: add a @surfspecies and its alias shows up here.
-    `extra` completes/overrides the generated table.
-    """
+    """PHREEQC -> ORCHESTRA names of the sorbed species (e.g. CaX2 -> Exch_X2-Ca)."""
     aliases = {}
     for orch, info in build_surface_species(filepath).items():
         site, raw = info['site'], info['raw']
@@ -350,9 +262,7 @@ def _as_set(components):
 
 
 def find_implicit_primaries(reactions, components):
-    """Safety net: species used as a REACTANT but never defined as a product
-    and not declared as a component. With build_components() this is empty;
-    it guards against a declaration tag this parser does not know yet."""
+    """Reactants neither defined as products nor declared as components."""
     known = _as_set(components)
     return {r for reactants in reactions.values() for r in reactants
             if r not in known and r not in reactions}
@@ -360,21 +270,7 @@ def find_implicit_primaries(reactions, components):
 
 def resolve_to_primary(species, reactions, primary_set, _cache=None, _stack=None,
                        on_unknown='primary', unknown_seen=None):
-    """Recursively substitute a species' reaction until every reactant is a
-    component.
-
-        SO4-2   : {'S[+6]': 1.0}       Ca[SO4] : {'Ca+2': 1.0, 'SO4-2': 1.0}
-        S[+6]   : {'S': 1.0}           Ca+2    : {'Ca': 1.0}
-        -> resolve_to_primary('Ca[SO4]', ...) == {'Ca': 1.0, 'S': 1.0}
-
-    Coefficients are multiplied along the chain and summed when the same
-    component is reached through several paths.
-
-    on_unknown -- leaf that is neither a component nor a product:
-        'primary' (default) : treat it as its own component -> {leaf: 1.0}
-        'ignore'            : drop it from the stoichiometry -> {}
-        'raise'             : raise KeyError
-    """
+    """Species -> {component: coefficient}, substituting reactions recursively."""
     if _cache is None:
         _cache = {}
     if _stack is None:
@@ -420,8 +316,7 @@ def resolve_to_primary(species, reactions, primary_set, _cache=None, _stack=None
 
 
 def resolve_reactions_to_primary(reactions, components, on_unknown='primary'):
-    """Apply resolve_to_primary() to every species of `reactions`.
-    `components` = build_components(path), or any iterable of names."""
+    """resolve_to_primary for every species of `reactions`."""
     primary_set = _as_set(components)
     if on_unknown == 'primary':
         primary_set |= find_implicit_primaries(reactions, components)
@@ -432,8 +327,7 @@ def resolve_reactions_to_primary(reactions, components, on_unknown='primary'):
 
 
 def component_list(reactions, components, on_unknown='primary'):
-    """Ordered matrix columns: declared components in declaration order,
-    then any leftover root caught by the safety net."""
+    """Matrix columns: declared components, then leftover roots."""
     cols = list(components)
     if on_unknown == 'primary':
         cols += sorted(find_implicit_primaries(reactions, components))
@@ -443,32 +337,7 @@ def component_list(reactions, components, on_unknown='primary'):
 def build_stoich_matrix(reactions, components, species_list, filepath=None,
                         aliases=None, on_unknown='primary', verbose=True,
                         site_columns='model'):
-    """(species x components) stoichiometry matrix, indexed by
-    `species_list` IN THAT EXACT ORDER (e.g. commMtrx.columns), so a
-    positional matmul with commMtrx.to_numpy() always matches.
-
-    The SORBED species are ordinary rows: Exch_X-Na carries 1 Na and 1 site,
-    Exch_X2-Ca carries 1 Ca and 2 sites, etc.
-
-    components  build_components(path)  (or build_primary_entities(path),
-                in which case pass `filepath` so the sites are added too)
-    filepath    path of the .inp -> completes the components with the
-                @surfsite declarations AND enables the PHREEQC<->ORCHESTRA
-                alias table (CaX2 -> Exch_X2-Ca, NaX -> Exch_X-Na, x -> Exch_X)
-    aliases     dict completing/overriding that table (optional)
-
-    A name that is unknown even after alias translation gets a row of zeros
-    and is reported at the end (it is genuinely absent from the database
-    and must be added to the .inp).
-
-    site_columns  'model' (default) : a single-site adsorption model gets a
-                                      column named after the MODEL, coef/nsites
-                                      (Xc_X2-Sr -> {'Sr': 1, 'Xc': 2}), see
-                                      site_column_map()
-                  'site'            : old behaviour, column named after the
-                                      site (Xc_X2-Sr -> {'Sr': 1, 'Xc_X': 2})
-    The model name itself ('Xc') is accepted in species_list (identity row).
-    """
+    """(species x components) stoichiometric matrix, rows in the order of `species_list`."""
     components = dict(components) if isinstance(components, dict) \
         else {c: {'kind': 'element'} for c in components}
     if filepath:
@@ -531,20 +400,7 @@ build_stoich_matrixD = build_stoich_matrix
 
 
 def align_stoich(stoich, species_list, component_list_, strict=True, verbose=True):
-    """Restrict an existing stoichiometry matrix to a sub-set of species
-    (rows) and components (columns), IN THE GIVEN ORDER, ready for a
-    positional matmul:
- 
-        commMtrxPart.to_numpy() @ align_stoich(...).to_numpy()
- 
-    This replaces a manual `for comp in species: for prim, coef in ...`
-    loop -- build_stoich_matrix() already returns a DataFrame, indexing it
-    with [species] would select a COLUMN and raise KeyError on a row name.
- 
-    strict=True raises if a requested species/component is not in `stoich`,
-    instead of silently filling that row or column with zeros (which would
-    quietly break the mass balance).
-    """
+    """Stoichiometric matrix restricted to `species` and `components`, in that order."""
     species_list = list(species_list)
     component_list_ = list(component_list_)
  
@@ -567,9 +423,7 @@ def align_stoich(stoich, species_list, component_list_, strict=True, verbose=Tru
  
 
 def sorbed_species(filepath):
-    """Names of the sorbed species, e.g. ['Exch_X-H', 'Exch_X-K',
-    'Exch_X-Na', 'Exch_X2-Ca'] -- handy to sum the sorbed amounts or to
-    exclude them from transport."""
+    """Names of the sorbed species."""
     return list(build_surface_species(filepath))
 
 
@@ -590,7 +444,7 @@ if __name__ == '__main__':
         print(f"#   {s}: total = {components[s]['total']} mol/L "
               f"(phase {components[s]['phase']}, charge {components[s]['charge']})",
               file=sys.stderr)
-    print(f"# especes sorbees : {sorbed_species(path)}", file=sys.stderr)
+    print(f"# sorbed species : {sorbed_species(path)}", file=sys.stderr)
     print(f"# racines non declarees : "
           f"{sorted(find_implicit_primaries(reactions, components))}", file=sys.stderr)
 

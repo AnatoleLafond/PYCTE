@@ -1,0 +1,132 @@
+//-------------------------------------------------------------------
+// $Id$
+/// \file gdatastream.h
+/// Contains definition of the GemDataStream class for processing
+/// binary data streams on platforms with different endianness.
+//
+/// \class  GemDataStream  gdatastream.h
+/// Stream binary file operations extended for endianness
+/// (e.g. for compatibility between Intel- and old Mac processors)
+//
+// Copyright (c) 1996-2012 A.Rysin, S.Dmytriyeva
+// <GEMS Development Team, mailto:gems2.support@psi.ch>
+//
+// This file is part of the GEMS3K code for thermodynamic modelling
+// by Gibbs energy minimization <http://gems.web.psi.ch/GEMS3K/>
+//
+// GEMS3K is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as
+// published by the Free Software Foundation, either version 3 of
+// the License, or (at your option) any later version.
+
+// GEMS3K is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with GEMS3K code. If not, see <http://www.gnu.org/licenses/>.
+//-------------------------------------------------------------------
+
+#ifndef _gemdatastream_h_
+#define _gemdatastream_h_
+
+#include <fstream>
+#include "verror.h"
+
+class GemDataStream				// data stream class
+{
+    //std::ios::openmode mod;
+    std::string Path;
+
+    int swap;
+    int	byteorder;
+    std::fstream ff;
+
+public:
+//    GemDataStream( fstream& ff  );
+    GemDataStream( ) {    setByteOrder(LittleEndian); }
+    GemDataStream( const std::string& aPath, std::ios::openmode aMod  );
+    virtual ~GemDataStream();
+
+    const std::string& GetPath() const
+    {
+        return Path;
+    }
+    
+//    bool	 atEnd() const;
+//    bool	 eof() const;
+
+    enum ByteOrder { BigEndian, LittleEndian };
+    int	 byteOrder() const { return byteorder; }
+    void setByteOrder( int );
+
+    std::filebuf* rdbuf() { return ff.rdbuf(); }
+    std::streamsize gcount() { return ff.gcount(); }
+    std::istream& getline(char* s, std::streamsize n, char delim) { return ff.getline(s, n, delim); }
+    void close() { ff.close(); }
+    void put(char ch) { ff.put(ch); }
+    std::istream& get(char& ch) { return ff.get(ch); }
+    void sync() { ff.sync(); }
+    bool good() { return ff.good(); }
+    void clear() { ff.clear(); }
+    void flush() { ff.flush(); }
+    long long tellg() { return ff.tellg(); }
+    void open(const char* filename, std::ios::openmode mode) { ff.open(filename, mode); }
+    std::ostream& seekp(long pos, std::ios_base::seekdir dir) { return ff.seekp(pos, dir); }
+    std::istream& seekg(long pos, std::ios_base::seekdir dir) { return ff.seekg(pos, dir); }
+
+    GemDataStream &operator>>( char &i );
+    GemDataStream &operator>>( unsigned char &i ) { return operator>>((char&)i); }
+    GemDataStream &operator>>( signed char &i ) { return operator>>((char&)i); }
+    GemDataStream &operator>>( short &i );
+    GemDataStream &operator>>( unsigned short &i ) { return operator>>((short&)i); }
+    GemDataStream &operator>>( int &i );
+    GemDataStream &operator>>( unsigned int &i ) { return operator>>((int&)i); }
+    GemDataStream &operator>>( long &i );
+    GemDataStream &operator>>( unsigned long &i ) { return operator>>((long&)i); }
+    GemDataStream &operator>>( float &f );
+    GemDataStream &operator>>( double &f );
+
+    GemDataStream &operator<<( char i );
+    GemDataStream &operator<<( unsigned char i ) { return operator<<((char) i); }
+    GemDataStream &operator<<( signed char i ) { return operator<<((char) i); }
+    GemDataStream &operator<<( short i );
+    GemDataStream &operator<<( unsigned short i ) { return operator<<((short) i); }
+    GemDataStream &operator<<( int i );
+    GemDataStream &operator<<( unsigned int i ) { return operator<<((int) i); }
+    GemDataStream &operator<<( long i );
+    GemDataStream &operator<<( unsigned long i ) { return operator<<((long) i); }
+    GemDataStream &operator<<( float f );
+    GemDataStream &operator<<( double f );
+
+    template <class T>
+    void writeArray( T* arr, int size )
+    {
+        if(!arr) {
+            return;
+        }
+        for(int ii=0; ii<size; ii++) {
+            *this << arr[ii];
+        }
+    }
+
+    template <class T>
+    void readArray( T* arr, int size )
+    {
+        if(!arr) {
+            return;
+        }
+        for(int ii=0; ii<size; ii++) {
+            *this >> arr[ii];
+        }
+    }
+
+    void writeArray(const std::vector<std::string>& arr);
+    void readArray(std::vector<std::string>& arr, int size);
+
+    void readArray( char* arr, int size );
+    void writeArray( char* arr, int size );
+};
+
+#endif

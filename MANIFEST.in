@@ -1,0 +1,5 @@
+graft pycte/orchestra_src
+graft pycte/gems_src
+graft pycte/phreeqc_src
+graft pycte/text_src
+global-exclude __pycache__ *.py[co]

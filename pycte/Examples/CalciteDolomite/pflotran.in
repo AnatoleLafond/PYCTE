@@ -43,12 +43,12 @@ CHEMISTRY
   PRIMARY_SPECIES
     H+
 
-    Cprim
-    Caprim
-    Clprim
-    Hprim
-    Mgprim
-    Oprim
+    Cpycte
+    Capycte
+    Clpycte
+    Hpycte
+    Mgpycte
+    Opycte
 
     
   /
@@ -98,12 +98,12 @@ CHEMISTRY
   MOLAL
   
   OUTPUT
-    Cprim
-    Caprim
-    Clprim
-    Hprim
-    Mgprim
-    Oprim
+    Cpycte
+    Capycte
+    Clpycte
+    Hpycte
+    Mgpycte
+    Opycte
 
   #SECONDARY_SPECIES
   #Tracer
@@ -245,12 +245,12 @@ END
 # == transport constraints ====================================================
 CONSTRAINT Initial
   CONCENTRATIONS
-    Cprim 1.227524e-4 T DATASET C_init
-    Caprim 3.405e-4 T DATASET Ca_init
-    Clprim 2.08e-8 T DATASET Cl_init
-    Hprim 111.016747 T DATASET H_init
-    Mgprim 1e-8 T DATASET Mg_init
-    Oprim 55.508342 T DATASET O_init
+    Cpycte 1.227524e-4 T DATASET C_init
+    Capycte 3.405e-4 T DATASET Ca_init
+    Clpycte 2.08e-8 T DATASET Cl_init
+    Hpycte 111.016747 T DATASET H_init
+    Mgpycte 1e-8 T DATASET Mg_init
+    Opycte 55.508342 T DATASET O_init
     
 H+ 1e-7 T
 
@@ -291,12 +291,12 @@ END
 
 CONSTRAINT Inlet1
   CONCENTRATIONS
-    Cprim 1e-8 T
-    Caprim 1e-8 T
-    Clprim 2e-3 T
-    Hprim 111.016747 T
-    Mgprim 1e-3 T
-    Oprim 55.508393 T
+    Cpycte 1e-8 T
+    Capycte 1e-8 T
+    Clpycte 2e-3 T
+    Hpycte 111.016747 T
+    Mgpycte 1e-3 T
+    Opycte 55.508393 T
     
 H+ 1e-7 T
 
